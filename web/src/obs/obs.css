@@ -7,16 +7,19 @@
    --------------------------------------------------------------------------- */
 
 :root {
-  /* === MINIMAP GEOMETRY — SHARED CONTRACT ==================================
-     These four percentages are MIRRORED by the Twitch extension, which places
-     its invisible click target over exactly this rectangle on the video frame.
-     They are percentages of the 1920x1080 stage, which is the video frame:
+  /* === MINIMAP GEOMETRY =====================================================
+     Percentages of the 1920x1080 stage, which is the video frame:
        left   1.5%  ->  28.8 px
        bottom 4%    ->  43.2 px
        width  19.5% -> 374.4 px
        height 30%   -> 324.0 px
-     Changing one of them here without changing it in the extension makes
-     viewers click next to the minimap instead of on it. Change both or none.
+
+     These used to be mirrored by an invisible click target in the Twitch
+     extension. They are not any more: a Video Overlay renders *underneath* the
+     Twitch player controls, so a target in the bottom strip is covered by them
+     exactly when the viewer has the mouse on the player. The extension now
+     shows its own visible button higher up (--trigger-* in viewer.css), and
+     this rectangle is only about where the minimap is burnt into the video.
      ======================================================================== */
   --mm-left: 1.5%;
   --mm-bottom: 4%;

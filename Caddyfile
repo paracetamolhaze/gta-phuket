@@ -83,6 +83,16 @@
 	@mobile path /mobile
 	rewrite @mobile /mobile.html
 
+	# ------------------------------------------------------------------- cache
+	# Asset filenames carry a content hash, so they can be cached forever — a
+	# changed file gets a different name. The HTML must never be cached: it is
+	# what points at the current hashes, and a stale copy would keep loading an
+	# old bundle after every rebuild.
+	@html path *.html /privacy /streamer /obs /admin /config /video_overlay /mobile /
+	header @html Cache-Control "no-store, must-revalidate"
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
 	# ------------------------------------------------------------------ static
 	# The built surfaces. Twitch Local Test points its Testing Base URI here, so
 	# these files must be reachable without any authentication. /admin.html is

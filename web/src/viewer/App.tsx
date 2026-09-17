@@ -25,7 +25,20 @@ import DestinationCard from './DestinationCard';
 import type { CardState } from './DestinationCard';
 import SearchBox from './SearchBox';
 import type { ExtAuth } from './twitch';
-import { currentToken, extParams, isLinked, onAuthorized, onError as onExtError, requestIdShare } from './twitch';
+import {
+  currentToken,
+  diagnostics,
+  extParams,
+  isLinked,
+  logDiagnostics,
+  markDomMounted,
+  onAuthorized,
+  onDiagnostics,
+  onError as onExtError,
+  onHighlightChanged,
+  requestIdShare,
+  type ExtDiagnostics,
+} from './twitch';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -91,6 +104,27 @@ interface Banner {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Both are build-time flags and both must be off for review: the badge and the
+ * smoke button exist to answer "did the extension load at all", which is not a
+ * question a viewer should ever see being asked.
+ */
+const DIAG_BADGE = (import.meta.env.VITE_DEV_MODE as string | undefined) === 'true';
+const SMOKE_TEST = (import.meta.env.VITE_SMOKE_TEST as string | undefined) === 'true';
+
+/**
+ * A Twitch extension iframe can report a width of 0 before the player has laid
+ * it out. Treating that as "narrow" used to flip the overlay into the mobile
+ * layout, whose bar sits at the bottom of the frame — underneath the Twitch
+ * player controls, where nobody ever saw it. Zero means "not measured yet",
+ * not "phone".
+ */
+function isNarrowViewport(): boolean {
+  if (typeof window === 'undefined') return false;
+  const width = window.innerWidth;
+  return width > 0 && width < 640;
+}
+
 export interface AppProps {
   /**
    * Forces the mobile layout. `mobile.html` sets it, because Twitch only adds
@@ -112,9 +146,27 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   const [expanded, setExpanded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [focus, setFocus] = useState<MapFocus | null>(null);
-  const [narrow, setNarrow] = useState(() => (typeof window === 'undefined' ? false : window.innerWidth < 640));
+  const [narrow, setNarrow] = useState(() => isNarrowViewport());
 
   const mobile = forceMobile || extParams.platform === 'mobile' || narrow;
+
+  // Twitch highlights the extension while the viewer hovers its icon. The
+  // trigger gets louder for that moment — it does not depend on it.
+  const [highlighted, setHighlighted] = useState(false);
+  const [diag, setDiag] = useState<ExtDiagnostics>(() => diagnostics());
+
+  useEffect(() => {
+    // Proof that React actually mounted inside the Twitch iframe. Everything
+    // else in this component can fail; this cannot.
+    markDomMounted();
+    logDiagnostics('overlay mounted');
+    const offHighlight = onHighlightChanged(setHighlighted);
+    const offDiag = onDiagnostics(setDiag);
+    return () => {
+      offHighlight();
+      offDiag();
+    };
+  }, []);
 
   const api = useMemo(() => new ApiClient({ getToken: () => currentToken() }), []);
 
@@ -138,7 +190,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
 
   // --- viewport -------------------------------------------------------------
   useEffect(() => {
-    const onResize = (): void => setNarrow(window.innerWidth < 640);
+    const onResize = (): void => setNarrow(isNarrowViewport());
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -419,7 +471,9 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   const banners: Banner[] = [];
   if (authError) banners.push({ text: authError, tone: 'bad' });
   if (closed) banners.push({ text: 'Приём точек закрыт', tone: 'warn' });
-  else if (gpsDown) banners.push({ text: 'GPS временно недоступен', tone: 'warn' });
+  // The map still opens and still shows Phuket without a GPS fix; only buying
+  // is blocked, so this says what is missing rather than hiding the map.
+  else if (gpsDown) banners.push({ text: 'GPS стримера временно недоступен', tone: 'warn' });
   if (slots && slots.total > 0 && slots.free === 0)
     banners.push({ text: 'Все слоты наград заняты, подожди немного', tone: 'warn' });
 
@@ -441,9 +495,54 @@ export default function App({ forceMobile = false }: AppProps = {}) {
               )}
             </div>
           )}
-          <button type="button" className="hitArea" onClick={openMap} aria-label="Открыть карту">
-            <span className="hitChip">Открыть карту</span>
+
+          {/*
+            Unconditional. No GPS, no backend, no identity, no active waypoint,
+            no onAuthorized — none of it may hide the way into the map. Those
+            states stop a viewer from *buying* a waypoint, which is a different
+            thing, and they are explained inside the map once it is open.
+          */}
+          <button
+            type="button"
+            className="mapTrigger"
+            data-highlighted={highlighted ? 'true' : 'false'}
+            onClick={openMap}
+            aria-label="Открыть карту Пхукета"
+          >
+            <span className="mapTriggerIcon" aria-hidden="true">🗺</span>
+            <span className="mapTriggerText">Карта</span>
           </button>
+
+          {DIAG_BADGE && (
+            <div className="diagBadge" role="status">
+              <span className="diagBadgeTitle">GTAMAP EXTENSION LOADED</span>
+              <span className="diagBadgeLine">
+                mount {diag.domMounted ? 'ok' : '—'} · helper {diag.helperLoaded ? 'ok' : '—'} ·
+                auth {diag.authorized ? 'ok' : '—'}
+              </span>
+              <span className="diagBadgeLine">
+                ch {diag.channelId ?? '—'} · {diag.viewerKind} · {diag.platform}
+                {diag.anchor ? ` · ${diag.anchor}` : ''}
+              </span>
+              <span className="diagBadgeLine">
+                vis {diag.visible ? 'on' : 'off'} · hl {diag.highlighted ? 'on' : 'off'}
+                {diag.devFallback ? ' · dev-fallback' : ''}
+              </span>
+              {diag.lastError && <span className="diagBadgeErr">{diag.lastError}</span>}
+            </div>
+          )}
+
+          {SMOKE_TEST && (
+            /*
+              Deliberately impossible to miss. If this is not on the player, the
+              problem is before React: the iframe never loaded, the bundle never
+              ran, or CSS/player controls hid it. If it IS there but the map
+              stays empty, the problem is the API or the map instead.
+            */
+            <button type="button" className="smokeBtn" onClick={openMap}>
+              EXTENSION WORKS — OPEN MAP
+            </button>
+          )}
         </>
       )}
 

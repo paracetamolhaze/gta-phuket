@@ -78,6 +78,7 @@ services:
       VITE_MAPBOX_PUBLIC_TOKEN: ${MAPBOX_PUBLIC_TOKEN}
       VITE_MAPBOX_STYLE_URL: ${MAPBOX_STYLE_URL:-mapbox://styles/mapbox/dark-v11}
       VITE_DEV_MODE: ${DEV_MODE:-false}
+      VITE_SMOKE_TEST: ${SMOKE_TEST:-false}
       VITE_API_BASE: ${VITE_API_BASE:-}
       VITE_PUBLIC_ORIGIN: ${PUBLIC_WEB_URL:-https://localhost:8080}
       VITE_PRIVACY_CONTACT: ${PRIVACY_CONTACT:-напишите владельцу канала в личные сообщения Twitch}
@@ -120,7 +121,8 @@ services:
       # Empty on purpose: the bundle and the API are served from the same public
       # origin, so same-origin calls need no CORS and no CSP allowlist entry.
       VITE_API_BASE: ${VITE_API_BASE:-}
-      VITE_DEV_MODE: 'false'
+      VITE_DEV_MODE: ${DEV_MODE:-false}
+      VITE_SMOKE_TEST: ${SMOKE_TEST:-false}
       VITE_PUBLIC_ORIGIN: ${PUBLIC_WEB_URL:-https://localhost:8080}
       VITE_PRIVACY_CONTACT: ${PRIVACY_CONTACT:-напишите владельцу канала в личные сообщения Twitch}
     entrypoint: ['npx']

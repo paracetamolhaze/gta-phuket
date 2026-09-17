@@ -55,6 +55,8 @@ interface TwitchExtApi {
   onContext?: (cb: (ctx: Partial<ExtContext>, changed: string[]) => void) => void;
   onError?: (cb: (err: unknown) => void) => void;
   onVisibilityChanged?: (cb: (isVisible: boolean, ctx?: Partial<ExtContext>) => void) => void;
+  /** Fires when Twitch highlights the extension, e.g. on hovering its icon. */
+  onHighlightChanged?: (cb: (isHighlighted: boolean) => void) => void;
   actions?: TwitchExtActions;
   viewer?: TwitchExtViewer;
 }
@@ -119,11 +121,20 @@ const visibilityListeners = new Set<(visible: boolean) => void>();
 
 function emitAuth(auth: ExtAuth): void {
   latestAuth = auth;
+  lastError = null;
   for (const cb of authListeners) cb(auth);
+  logDiagnostics('onAuthorized');
+  publishDiagnostics();
 }
 
 function emitError(err: unknown): void {
+  // Keep only a short, safe description: this is surfaced in the UI and logged.
+  lastError = err instanceof Error ? err.message : String(err ?? 'unknown error');
+  lastError = lastError.slice(0, 200);
+  // eslint-disable-next-line no-console
+  console.warn(`[GTAMAP] extension error: ${lastError}`);
   for (const cb of errorListeners) cb(err);
+  publishDiagnostics();
 }
 
 export function hasTwitchHelper(): boolean {
@@ -213,6 +224,108 @@ async function mintDevToken(userId: string, role: DevRole = 'viewer'): Promise<E
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// Diagnostics
+//
+// "The extension menu shows up but nothing is on the player" has at least six
+// different causes, and from the outside they look identical. This records the
+// few facts that tell them apart — and never a token, because this is read off
+// a screen and pasted into chat.
+// ---------------------------------------------------------------------------
+
+export type ViewerKind = 'linked' | 'opaque' | 'anonymous' | 'unknown';
+
+export interface ExtDiagnostics {
+  /** React actually mounted. Set by the app, not by this module. */
+  domMounted: boolean;
+  /** window.Twitch.ext exists — the helper script loaded. */
+  helperLoaded: boolean;
+  /** We are standing in for Twitch rather than running inside it. */
+  devFallback: boolean;
+  /** onAuthorized has fired at least once. */
+  authorized: boolean;
+  channelId: string | null;
+  viewerKind: ViewerKind;
+  visible: boolean;
+  highlighted: boolean;
+  /** Safe message only; never the error object or anything signed. */
+  lastError: string | null;
+  platform: ExtPlatform;
+  anchor: string | null;
+}
+
+let domMounted = false;
+let latestHighlighted = false;
+let lastError: string | null = null;
+
+const highlightListeners = new Set<(highlighted: boolean) => void>();
+const diagListeners = new Set<(d: ExtDiagnostics) => void>();
+
+/** Called once by the app so the badge can prove React came up. */
+export function markDomMounted(): void {
+  domMounted = true;
+  publishDiagnostics();
+}
+
+function viewerKind(): ViewerKind {
+  const auth = latestAuth;
+  if (!auth) return 'unknown';
+  if (/^\d+$/.test(auth.userId)) return 'linked';
+  if (auth.userId.startsWith('A')) return 'anonymous';
+  return 'opaque';
+}
+
+export function diagnostics(): ExtDiagnostics {
+  return {
+    domMounted,
+    helperLoaded: hasTwitchHelper(),
+    devFallback: isDevFallback(),
+    authorized: latestAuth !== null,
+    channelId: latestAuth?.channelId ?? null,
+    viewerKind: viewerKind(),
+    visible: latestVisible,
+    highlighted: latestHighlighted,
+    lastError,
+    platform: extParams.platform,
+    anchor: extParams.anchor,
+  };
+}
+
+function publishDiagnostics(): void {
+  const snapshot = diagnostics();
+  for (const cb of diagListeners) cb(snapshot);
+}
+
+export function onDiagnostics(cb: (d: ExtDiagnostics) => void): Unsubscribe {
+  diagListeners.add(cb);
+  cb(diagnostics());
+  return () => diagListeners.delete(cb);
+}
+
+export function onHighlightChanged(cb: (highlighted: boolean) => void): Unsubscribe {
+  highlightListeners.add(cb);
+  cb(latestHighlighted);
+  return () => highlightListeners.delete(cb);
+}
+
+export function isHighlighted(): boolean {
+  return latestHighlighted;
+}
+
+/** One line per fact, so a screenshot of the console answers "did it load". */
+export function logDiagnostics(reason: string): void {
+  const d = diagnostics();
+  // eslint-disable-next-line no-console
+  console.info(
+    `[GTAMAP] ${reason} | mounted=${d.domMounted} helper=${d.helperLoaded} ` +
+      `devFallback=${d.devFallback} authorized=${d.authorized} channel=${d.channelId ?? '-'} ` +
+      `viewer=${d.viewerKind} visible=${d.visible} highlighted=${d.highlighted} ` +
+      `platform=${d.platform} anchor=${d.anchor ?? '-'}` +
+      (d.lastError ? ` error=${d.lastError}` : ''),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Installation
 // ---------------------------------------------------------------------------
@@ -242,7 +355,18 @@ export function start(role: DevRole = 'viewer'): void {
       latestVisible = visible;
       if (ctx) latestContext = { ...latestContext, ...ctx };
       for (const cb of visibilityListeners) cb(visible);
+      logDiagnostics(`onVisibilityChanged(${visible})`);
+      publishDiagnostics();
     });
+    ext.onHighlightChanged?.((highlighted) => {
+      // Twitch highlights the extension when the viewer hovers its icon. The
+      // trigger gets louder for that moment; it does not depend on it.
+      latestHighlighted = highlighted;
+      for (const cb of highlightListeners) cb(highlighted);
+      publishDiagnostics();
+    });
+
+    logDiagnostics('twitch helper wired');
 
     // Belt and braces: if the helper is present but never authorises us (a
     // hosted-test misconfiguration, or the page opened outside Twitch with a

@@ -1,6 +1,6 @@
 /* Twitch video-overlay extension.
-   Collapsed: nothing is painted except a hit area over the burnt-in minimap.
-   Expanded: one dark glass sheet over the still-playing stream. */
+   Collapsed: one small, always-visible button. Expanded: a dark glass sheet
+   over the still-playing stream. */
 
 /* Nothing in this document takes a click unless it asks for one, so every
    click on transparent pixels reaches the Twitch player underneath. */
@@ -17,11 +17,13 @@ body.page-viewer #root {
   overflow: hidden;
   pointer-events: none;
 
-  /* OBS draws the minimap at these fractions of a 1920x1080 canvas. */
-  --hit-left: 1.5%;
-  --hit-bottom: 4%;
-  --hit-width: 19.5%;
-  --hit-height: 30%;
+  /* Where the collapsed trigger sits, as a fraction of the player.
+     Deliberately NOT near the bottom edge: a Video Overlay renders underneath
+     the Twitch player controls, so anything in the bottom strip is covered by
+     them whenever the controls are showing — which is exactly when the viewer
+     has the mouse over the player and would be looking for it. */
+  --trigger-left: 3%;
+  --trigger-top: 55%;
 
   /* Expanded overlay insets. The bottom one keeps the player controls free. */
   --ov-x: 3%;
@@ -31,60 +33,125 @@ body.page-viewer #root {
 
 /* ------------------------------------------------------------------ collapsed */
 
-.hitArea {
+/* The one element that is always on screen. Everything else about the
+   extension can be broken — no GPS, no backend, no identity, no authorization
+   — and this still renders, because it is the only way into the map. */
+.mapTrigger {
   position: absolute;
-  left: var(--hit-left);
-  bottom: var(--hit-bottom);
-  width: var(--hit-width);
-  height: var(--hit-height);
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
+  left: var(--trigger-left);
+  top: var(--trigger-top);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px 0 12px;
+  /* The only element in the collapsed overlay that takes a click. */
   pointer-events: auto;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-m);
-  transition: border-color 140ms ease, background 140ms ease;
-}
-
-.hitArea:hover,
-.hitArea:focus-visible {
-  outline: none;
-  border-color: rgba(255, 194, 71, 0.5);
-  background: rgba(5, 9, 12, 0.14);
-}
-
-.hitChip {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) translateY(4px);
-  white-space: nowrap;
-  padding: 7px 11px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 650;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text);
-  background: var(--glass);
+  background: rgba(5, 9, 12, 0.62);
   border: 1px solid var(--hairline-strong);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  opacity: 0;
-  transition: opacity 140ms ease, transform 140ms ease;
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
-.hitArea:hover .hitChip,
-.hitArea:focus-visible .hitChip {
-  opacity: 1;
-  transform: translate(-50%, -50%);
+.mapTriggerIcon {
+  font-size: 15px;
+  line-height: 1;
 }
 
+.mapTrigger:hover,
+.mapTrigger:focus-visible {
+  outline: none;
+  background: rgba(5, 9, 12, 0.82);
+  border-color: var(--accent);
+}
+
+.mapTrigger:active {
+  transform: translateY(1px);
+}
+
+/* Twitch highlights the extension when the viewer hovers its icon in the
+   player. Louder for that moment, present the rest of the time. */
+.mapTrigger[data-highlighted='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+  box-shadow: 0 0 0 4px rgba(255, 194, 71, 0.22), 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------------------------------------------------------- local test only */
+
+/* Proof that video_overlay.html loaded and React mounted inside the Twitch
+   iframe. Build-time flag; never present in a review build. */
+.diagBadge {
+  position: absolute;
+  left: var(--trigger-left);
+  top: calc(var(--trigger-top) + 52px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 260px;
+  padding: 8px 10px;
+  pointer-events: none;
+  border-radius: var(--radius-s);
+  background: rgba(5, 9, 12, 0.72);
+  border: 1px solid rgba(88, 211, 140, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.diagBadgeTitle {
+  color: var(--ok);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.diagBadgeLine {
+  white-space: nowrap;
+}
+
+.diagBadgeErr {
+  color: var(--danger);
+  white-space: normal;
+}
+
+/* Impossible to miss on purpose: if this is not on the player, the problem is
+   before React. Build-time flag; off for review. */
+.smokeBtn {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  padding: 14px 22px;
+  border-radius: var(--radius-m);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  border: none;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+
+
+/* Sits just above the trigger, in the same safe band. */
 .taskPill {
   position: absolute;
-  left: var(--hit-left);
-  bottom: calc(var(--hit-bottom) + var(--hit-height) + 10px);
+  left: var(--trigger-left);
+  top: calc(var(--trigger-top) - 34px);
   max-width: 38%;
   display: inline-flex;
   align-items: center;
