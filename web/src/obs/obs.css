@@ -1,0 +1,443 @@
+/* ---------------------------------------------------------------------------
+   OBS Browser Source HUD.
+
+   A 1920x1080 stage that is uniformly scaled with a CSS transform to whatever
+   viewport OBS gives it. Everything outside the HUD stays fully transparent:
+   html / body / #root never paint, so the video shows through.
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* === MINIMAP GEOMETRY — SHARED CONTRACT ==================================
+     These four percentages are MIRRORED by the Twitch extension, which places
+     its invisible click target over exactly this rectangle on the video frame.
+     They are percentages of the 1920x1080 stage, which is the video frame:
+       left   1.5%  ->  28.8 px
+       bottom 4%    ->  43.2 px
+       width  19.5% -> 374.4 px
+       height 30%   -> 324.0 px
+     Changing one of them here without changing it in the extension makes
+     viewers click next to the minimap instead of on it. Change both or none.
+     ======================================================================== */
+  --mm-left: 1.5%;
+  --mm-bottom: 4%;
+  --mm-width: 19.5%;
+  --mm-height: 30%;
+
+  /* Stage scale, written from JS on resize as window.innerWidth / 1920. */
+  --k: 1;
+
+  --mm-radius: 18px;
+  --mm-strip-h: 78px;
+}
+
+/* Nothing but the HUD may paint, scroll, or show a pointer. */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  cursor: none;
+}
+
+body.page-obs {
+  background: transparent;
+}
+
+#root *,
+#root *::before,
+#root *::after {
+  cursor: none;
+}
+
+#root *:focus,
+#root *:focus-visible {
+  outline: none;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Stage
+   -------------------------------------------------------------------------- */
+
+.obs-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  transform: scale(var(--k));
+  transform-origin: top left;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* --------------------------------------------------------------------------
+   Minimap frame
+   -------------------------------------------------------------------------- */
+
+.obs-minimap {
+  position: absolute;
+  left: var(--mm-left);
+  bottom: var(--mm-bottom);
+  width: var(--mm-width);
+  height: var(--mm-height);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--mm-radius);
+  background: var(--glass);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  opacity: 1;
+  transition: opacity 500ms ease;
+}
+
+/* GPS stale / missing: the whole block steps back. */
+.obs-minimap.is-stale {
+  opacity: 0.55;
+}
+
+/* --------------------------------------------------------------------------
+   Map area
+   -------------------------------------------------------------------------- */
+
+.obs-map-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--ink-0);
+}
+
+.obs-map {
+  position: absolute;
+  inset: 0;
+}
+
+.obs-map canvas {
+  outline: none;
+}
+
+/* A soft inner vignette so the map never touches the hairline hard. */
+.obs-map-area::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.55);
+}
+
+/* Corner ticks — a viewfinder, not a frame. */
+.obs-tick {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border: 0 solid var(--hairline-strong);
+  pointer-events: none;
+}
+.obs-tick--tl {
+  top: 9px;
+  left: 9px;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+.obs-tick--tr {
+  top: 9px;
+  right: 9px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+.obs-tick--bl {
+  bottom: 9px;
+  left: 9px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+}
+.obs-tick--br {
+  bottom: 9px;
+  right: 9px;
+  border-bottom-width: 1px;
+  border-right-width: 1px;
+}
+
+/* --------------------------------------------------------------------------
+   Player marker — fixed at the map centre, always pointing up because the
+   map itself rotates to the direction of travel.
+   -------------------------------------------------------------------------- */
+
+.obs-player {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.obs-player__pulse {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -29px;
+  border-radius: 50%;
+  border: 1px solid rgba(69, 224, 192, 0.55);
+  animation: obs-pulse 2900ms cubic-bezier(0.22, 0.61, 0.35, 1) infinite;
+}
+
+.obs-player__pulse--b {
+  animation-delay: 1450ms;
+}
+
+.obs-player__arrow {
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  width: 30px;
+  height: 30px;
+  filter: drop-shadow(0 0 7px rgba(69, 224, 192, 0.55));
+}
+
+.obs-player__arrow path {
+  fill: var(--player);
+  stroke: rgba(5, 9, 12, 0.8);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+
+@keyframes obs-pulse {
+  0% {
+    transform: scale(0.34);
+    opacity: 0.9;
+  }
+  70%,
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* Destination diamond (DOM marker owned by Minimap.tsx). */
+.obs-dest {
+  width: 0;
+  height: 0;
+}
+
+.obs-dest__diamond {
+  position: absolute;
+  left: -8px;
+  top: -8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  background: var(--accent);
+  border: 1px solid rgba(5, 9, 12, 0.85);
+  box-shadow: 0 0 14px rgba(255, 194, 71, 0.65);
+}
+
+/* --------------------------------------------------------------------------
+   Overlays inside the map area
+   -------------------------------------------------------------------------- */
+
+.obs-flag {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(5, 9, 12, 0.8);
+  border: 1px solid var(--hairline);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.obs-flag--danger {
+  color: var(--danger);
+  border-color: rgba(255, 107, 94, 0.45);
+}
+
+.obs-flag--faint {
+  color: var(--text-faint);
+}
+
+/* --------------------------------------------------------------------------
+   Lower strip: destination + remaining distance
+   -------------------------------------------------------------------------- */
+
+.obs-strip {
+  position: relative;
+  flex: 0 0 var(--mm-strip-h);
+  height: var(--mm-strip-h);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 15px 4px;
+  border-top: 1px solid var(--hairline);
+  background: rgba(5, 9, 12, 0.55);
+}
+
+.obs-strip__dest {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.obs-strip__label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-faint);
+}
+
+.obs-strip__name {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obs-strip__metrics {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.obs-strip__dist {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.obs-strip__value {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.obs-strip__unit {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+}
+
+.obs-strip__eta {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+/* Idle: no destination block at all. */
+.obs-strip__idle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.obs-strip__idle-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  opacity: 0.8;
+}
+
+/* Thin amber progress along the very bottom edge of the frame. */
+.obs-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.obs-progress__fill {
+  height: 100%;
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(255, 194, 71, 0.6);
+  transition: width 700ms linear;
+}
+
+/* --------------------------------------------------------------------------
+   ?debug=1 — alignment helper. Never visible on stream.
+   -------------------------------------------------------------------------- */
+
+.obs-debug {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.obs-debug__stage {
+  position: absolute;
+  inset: 0;
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+}
+
+.obs-debug__safe {
+  position: absolute;
+  left: 5%;
+  top: 5%;
+  right: 5%;
+  bottom: 5%;
+  border: 1px dashed rgba(255, 255, 255, 0.4);
+}
+
+.obs-debug__mm {
+  position: absolute;
+  left: var(--mm-left);
+  bottom: var(--mm-bottom);
+  width: var(--mm-width);
+  height: var(--mm-height);
+  border: 1px dashed var(--accent);
+}
+
+.obs-debug__note {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: rgba(5, 9, 12, 0.7);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.obs-debug__note--safe {
+  left: 5%;
+  top: calc(5% - 22px);
+  color: var(--text);
+}
+
+.obs-debug__note--mm {
+  left: var(--mm-left);
+  bottom: calc(var(--mm-bottom) + var(--mm-height) + 8px);
+}

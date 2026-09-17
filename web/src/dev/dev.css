@@ -1,0 +1,634 @@
+/* Local Twitch player simulator.
+   Everything here is instrumentation, so it stays quieter than the surfaces it
+   is driving: the player box is the object, the rail is a thin tool tray. */
+
+.dev-shell {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(255, 194, 71, 0.05) 0%, transparent 60%),
+    var(--ink-0);
+}
+
+/* --- banner -------------------------------------------------------------- */
+
+.dev-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(255, 194, 71, 0.05);
+}
+
+.dev-banner p {
+  margin: 0;
+  max-width: 96ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.dev-banner b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.dev-banner-tag {
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 194, 71, 0.45);
+  border-radius: var(--radius-s);
+  color: var(--accent);
+}
+
+.dev-alert {
+  margin: 14px 20px 0;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 107, 94, 0.45);
+  border-radius: var(--radius-s);
+  background: rgba(255, 107, 94, 0.08);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* --- layout -------------------------------------------------------------- */
+
+.dev-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 20px;
+  align-items: start;
+  padding: 20px;
+}
+
+.dev-stage {
+  min-width: 0;
+}
+
+.dev-stage-note {
+  margin: 10px auto 0;
+  max-width: 1280px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* --- the player box ------------------------------------------------------ */
+
+.dev-player {
+  position: relative;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-m);
+  background: #000;
+  box-shadow: var(--shadow);
+}
+
+/* 1 — stand-in for the video */
+.dev-video {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: radial-gradient(130% 100% at 50% 35%, #101c25 0%, #070d11 55%, #04080a 100%);
+}
+
+.dev-video::before,
+.dev-video::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  pointer-events: none;
+}
+
+.dev-video::before {
+  background-image:
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.05) 0 2px, transparent 2px 11px),
+    repeating-linear-gradient(22deg, rgba(69, 224, 192, 0.04) 0 1px, transparent 1px 17px);
+  animation: dev-drift 42s ease-in-out infinite alternate;
+}
+
+.dev-video::after {
+  background: radial-gradient(38% 46% at 32% 42%, rgba(255, 194, 71, 0.08) 0%, transparent 70%);
+  animation: dev-sweep 34s ease-in-out infinite alternate;
+}
+
+@keyframes dev-drift {
+  from {
+    transform: translate3d(-4%, -3%, 0);
+  }
+  to {
+    transform: translate3d(4%, 3%, 0);
+  }
+}
+
+@keyframes dev-sweep {
+  from {
+    transform: translate3d(-14%, 4%, 0);
+  }
+  to {
+    transform: translate3d(16%, -6%, 0);
+  }
+}
+
+.dev-watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  user-select: none;
+}
+
+.dev-watermark-main {
+  font-size: clamp(18px, 3vw, 40px);
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: rgba(238, 244, 247, 0.14);
+}
+
+.dev-watermark-sub {
+  color: rgba(238, 244, 247, 0.16);
+  letter-spacing: 0.2em;
+}
+
+/* 2 — the burnt-in OBS overlay, authored at 1920x1080 and scaled to fit */
+.dev-obs-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.dev-obs {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: none;
+  transform-origin: top left;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* 3 — the extension layer: the only one that takes clicks */
+.dev-viewer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+}
+
+/* 4 — fake Twitch controls: they really do swallow clicks, like the real player.
+   That is the point: it shows what the extension's bottom safe zone protects. */
+.dev-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  height: 8%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  color: rgba(238, 244, 247, 0.75);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.86) 0%, rgba(0, 0, 0, 0.45) 60%, transparent 100%);
+}
+
+.dev-scrub {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.dev-scrub span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--danger);
+  opacity: 0.8;
+}
+
+.dev-ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-s);
+  color: inherit;
+  opacity: 0.85;
+}
+
+.dev-ctl:hover {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 1;
+}
+
+.dev-volume {
+  width: 62px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dev-volume span {
+  display: block;
+  width: 62%;
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.dev-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.dev-spacer {
+  flex: 1;
+}
+
+/* --- control rail -------------------------------------------------------- */
+
+.dev-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.dev-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.dev-card h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.dev-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
+.dev-note .dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.dev-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 194, 71, 0.35);
+  border-radius: var(--radius-s);
+  background: rgba(255, 194, 71, 0.07);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent);
+}
+
+.dev-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dev-row-2 > * {
+  flex: 1 1 130px;
+  min-width: 0;
+}
+
+.dev-wide {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.dev-narrow {
+  flex: none;
+  padding: 0 14px;
+}
+
+.dev-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dev-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 14px;
+  outline: none;
+}
+
+.dev-input::placeholder {
+  color: var(--text-faint);
+}
+
+.dev-input:focus {
+  border-color: var(--hairline-strong);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.dev-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dev-chip {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.dev-chip:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text);
+}
+
+.dev-chip.is-active {
+  border-color: rgba(255, 194, 71, 0.55);
+  color: var(--accent);
+}
+
+.dev-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dev-slider .num {
+  color: var(--text);
+}
+
+.dev-slider input[type='range'] {
+  width: 100%;
+  height: 28px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+.dev-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hairline-strong);
+}
+
+.dev-slider input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+}
+
+.dev-slider input[type='range']::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hairline-strong);
+}
+
+.dev-slider input[type='range']::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.btn.is-armed {
+  color: var(--danger);
+  border-color: rgba(255, 107, 94, 0.5);
+}
+
+/* --- the redemption button: the loudest thing in the rail ---------------- */
+
+.dev-redeem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 74px;
+  padding: 14px 18px;
+  border-radius: var(--radius-s);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+  text-align: left;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.dev-redeem:hover:not(:disabled) {
+  background: #ffcf6b;
+}
+
+.dev-redeem:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.dev-redeem:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dev-redeem-title {
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dev-redeem-sub {
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+/* --- quick links --------------------------------------------------------- */
+
+.dev-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dev-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 46px;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.dev-link:hover {
+  border-color: var(--hairline-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dev-link-path {
+  font-size: 13px;
+}
+
+.dev-link-note {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* --- event log ----------------------------------------------------------- */
+
+.dev-card-log {
+  gap: 10px;
+}
+
+.dev-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dev-clear {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  color: var(--text-dim);
+}
+
+.dev-clear:hover {
+  border-color: var(--hairline-strong);
+  color: var(--text);
+}
+
+.dev-log {
+  min-height: 300px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 4px 2px;
+  border-top: 1px solid var(--hairline);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.dev-log-empty {
+  margin: 12px 4px;
+  color: var(--text-faint);
+}
+
+.dev-log-row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, auto) minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.dev-log-time {
+  color: var(--text-faint);
+}
+
+.dev-log-name {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.dev-log-detail {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-log-row.is-err .dev-log-name {
+  color: var(--danger);
+}
+
+.dev-log-row.is-net .dev-log-name {
+  color: var(--player);
+}
+
+.dev-log-row.is-sys .dev-log-name {
+  color: var(--text-faint);
+}
+
+/* --- narrow screens ------------------------------------------------------ */
+
+@media (max-width: 1180px) {
+  .dev-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dev-log {
+    max-height: 340px;
+  }
+}
+
+@media (max-width: 560px) {
+  .dev-banner {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .dev-body {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .dev-presets {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

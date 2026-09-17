@@ -1,0 +1,19 @@
+{
+  "name": "IRL Waypoint",
+  "short_name": "Waypoint",
+  "lang": "ru",
+  "start_url": "/streamer.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#05090c",
+  "theme_color": "#07100d",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,584 @@
+/* Streamer phone HUD.
+   Held at arm's length, on a stabiliser, in Phuket sun. Everything is bigger
+   and flatter than it would be on a desk: no small type, no thin contrast,
+   nothing below 44px that a thumb has to find. */
+
+.page-streamer {
+  overscroll-behavior: none;
+  background: var(--ink-0);
+}
+
+.sc {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-right, 0px) + 16px)
+    calc(env(safe-area-inset-bottom, 0px) + 14px) calc(env(safe-area-inset-left, 0px) + 16px);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* A new waypoint lands: the whole surface takes the accent for a beat. */
+@keyframes sc-flash {
+  0% {
+    box-shadow: inset 0 0 0 0 rgba(255, 194, 71, 0);
+  }
+  12% {
+    box-shadow: inset 0 0 0 8px rgba(255, 194, 71, 0.7);
+  }
+  55% {
+    box-shadow: inset 0 0 0 4px rgba(255, 194, 71, 0.25);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(255, 194, 71, 0);
+  }
+}
+
+.sc.is-flashing {
+  animation: sc-flash 700ms ease-out 2;
+}
+
+/* ---------------------------------------------------------------- header */
+
+.sc-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.sc-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.sc-stat .dot {
+  width: 12px;
+  height: 12px;
+}
+
+.sc-stat-key {
+  color: var(--text-faint);
+}
+
+.sc-beat {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--player);
+  opacity: 0;
+  animation: sc-beat 1200ms ease-out 1;
+}
+
+@keyframes sc-beat {
+  0% {
+    opacity: 1;
+    transform: scale(1.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+.sc-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ------------------------------------------------------------------ body */
+
+.sc-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+.sc-note {
+  padding: 14px 16px;
+  border-radius: var(--radius-m);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  border: 1px solid var(--hairline-strong);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sc-note.bad {
+  color: var(--danger);
+  border-color: rgba(255, 107, 94, 0.45);
+  background: rgba(255, 107, 94, 0.12);
+}
+
+.sc-note.ok {
+  color: var(--ok);
+  border-color: rgba(88, 211, 140, 0.45);
+  background: rgba(88, 211, 140, 0.12);
+}
+
+/* -------------------------------------------------------------- GPS gate */
+
+.sc-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 18px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--hairline-strong);
+  background: var(--glass-soft);
+}
+
+.sc-gate-title {
+  margin: 0;
+  font-size: clamp(30px, 9vw, 42px);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.sc-gate-note {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.sc-gate .btn {
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------ no waypoint */
+
+.sc-wait {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+  padding: 24px 0;
+}
+
+.sc-wait-mark {
+  width: min(42vw, 180px);
+  aspect-ratio: 1;
+}
+
+.sc-wait-mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.sc-wait-ring {
+  fill: none;
+  stroke: var(--hairline-strong);
+  stroke-width: 1.5;
+  animation: sc-breathe 4.5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.sc-wait-dot {
+  fill: var(--player);
+}
+
+@keyframes sc-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.sc-wait-title {
+  margin: 0;
+  font-size: clamp(40px, 13vw, 66px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 0.95;
+}
+
+.sc-wait-coords {
+  font-size: 17px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.sc-wait-open {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.sc-wait-open .is-open {
+  color: var(--ok);
+}
+
+.sc-wait-open .is-closed {
+  color: var(--danger);
+}
+
+/* -------------------------------------------------------- active waypoint */
+
+.sc-active {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  min-height: 0;
+}
+
+.sc-banner {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 10px 18px;
+  border-radius: var(--radius-m);
+  background: rgba(255, 194, 71, 0.16);
+  border: 1px solid rgba(255, 194, 71, 0.5);
+  color: var(--accent);
+}
+
+.sc-banner-text {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.sc-banner-x {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-s);
+  font-size: 20px;
+  color: var(--accent);
+}
+
+/* The dial: a static ring, a rotating arrow on top of it. */
+.sc-dial {
+  position: relative;
+  width: min(64vw, 300px);
+  aspect-ratio: 1;
+  margin-top: 4px;
+  flex: none;
+}
+
+.sc-dial svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.sc-ring-outer {
+  fill: none;
+  stroke: var(--hairline);
+  stroke-width: 1;
+}
+
+.sc-ring-inner {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-width: 1;
+  stroke-dasharray: 3 7;
+}
+
+.sc-tick {
+  stroke: var(--hairline-strong);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sc-tick-n {
+  stroke: var(--text-faint);
+  stroke-width: 3;
+}
+
+.sc-dial-arrow {
+  transition: transform 450ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+.sc-arrow-body {
+  fill: var(--accent);
+  stroke: rgba(0, 0, 0, 0.35);
+  stroke-width: 1;
+  filter: drop-shadow(0 6px 18px rgba(255, 194, 71, 0.28));
+}
+
+.sc-arrow-pin {
+  fill: var(--accent-ink);
+  opacity: 0.55;
+}
+
+.sc-frame {
+  min-height: 16px;
+}
+
+.sc-frame .label {
+  font-size: 11px;
+}
+
+.sc-frame-warn {
+  color: var(--accent);
+}
+
+.sc-dest {
+  margin: 2px 0 0;
+  font-size: clamp(26px, 8vw, 38px);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.sc-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin-top: -2px;
+}
+
+.sc-metric-value {
+  font-size: clamp(72px, 25vw, 148px);
+  font-weight: 800;
+  line-height: 0.88;
+  letter-spacing: -0.045em;
+}
+
+.sc-metric-unit {
+  font-size: clamp(22px, 7vw, 34px);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.sc-eta {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sc-eta-at {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.sc-paid {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sc-actions {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+
+/* ----------------------------------------------------------- big controls */
+
+.btn.sc-xl {
+  width: 100%;
+  min-height: 64px;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  border-radius: var(--radius-m);
+}
+
+a.btn {
+  text-decoration: none;
+}
+
+.sc-finish {
+  position: relative;
+  overflow: hidden;
+  color: var(--text);
+}
+
+.sc-finish.is-armed {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(255, 107, 94, 0.14);
+}
+
+/* The armed state drains: miss the window and the button disarms itself,
+   so a pocket tap can never complete a job. */
+.sc-finish.is-armed::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--danger);
+  animation: sc-drain 4000ms linear forwards;
+}
+
+@keyframes sc-drain {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+/* ------------------------------------------------------------------ footer */
+
+.sc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.sc-foot .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn.sc-unpair {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--text-faint);
+  flex: none;
+}
+
+.btn.sc-unpair.is-armed {
+  color: var(--danger);
+  border-color: rgba(255, 107, 94, 0.5);
+}
+
+/* ----------------------------------------------------------------- pairing */
+
+.sc-pair {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+}
+
+.sc-pair-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sc-pair-title {
+  margin: 0;
+  font-size: clamp(40px, 13vw, 60px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: 0.01em;
+}
+
+.sc-pair-note {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.sc-pair-field {
+  display: flex;
+  gap: 10px;
+}
+
+.sc-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 68px;
+  padding: 0 18px;
+  font-size: 22px;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-m);
+  color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.sc-input::placeholder {
+  color: var(--text-faint);
+}
+
+.sc-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 194, 71, 0.18);
+}
+
+.btn.sc-reveal {
+  min-height: 68px;
+  padding: 0 14px;
+  font-size: 11px;
+  flex: none;
+}
+
+/* ------------------------------------------------------------- short phones */
+
+@media (max-height: 700px) {
+  .sc-dial {
+    width: min(46vw, 210px);
+  }
+  .sc-metric-value {
+    font-size: clamp(60px, 20vw, 110px);
+  }
+  .sc-wait-mark {
+    width: min(32vw, 130px);
+  }
+}
+
+/* Landscape happens on a gimbal by accident; keep it usable, not pretty. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .sc-dial {
+    width: min(26vh, 150px);
+  }
+  .sc-wait-title {
+    font-size: 40px;
+  }
+  .sc-metric-value {
+    font-size: 64px;
+  }
+}

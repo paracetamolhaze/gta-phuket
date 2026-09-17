@@ -1,0 +1,27 @@
+{
+  "name": "@gta-phuket/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "ext:zip": "node scripts/build-extension.mjs"
+  },
+  "dependencies": {
+    "mapbox-gl": "^3.6.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "@types/mapbox-gl": "^3.4.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
+  }
+}

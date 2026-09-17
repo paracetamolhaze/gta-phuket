@@ -1,0 +1,112 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gta
+      POSTGRES_PASSWORD: gta
+      POSTGRES_DB: gta_phuket
+    ports:
+      - '55432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U gta -d gta_phuket']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'no']
+    ports:
+      - '63790:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 4000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://gta:gta@postgres:5432/gta_phuket
+      REDIS_URL: redis://redis:6379
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:5173}
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Source is mounted so edits are picked up without a rebuild.
+      - ./server/src:/app/server/src:ro
+      - ./server/tsconfig.json:/app/server/tsconfig.json:ro
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    env_file:
+      - .env
+    environment:
+      VITE_PROXY_TARGET: http://api:4000
+      VITE_MAPBOX_PUBLIC_TOKEN: ${MAPBOX_PUBLIC_TOKEN}
+      VITE_MAPBOX_STYLE_URL: ${MAPBOX_STYLE_URL:-mapbox://styles/mapbox/dark-v11}
+      VITE_DEV_MODE: ${DEV_MODE:-false}
+      VITE_TWITCH_CHANNEL_ID: ${TWITCH_CHANNEL_ID}
+    ports:
+      - '5173:5173'
+    depends_on:
+      - api
+    volumes:
+      - ./web/src:/app/web/src:ro
+      - ./web/public:/app/web/public:ro
+      - ./web/vite.config.ts:/app/web/vite.config.ts:ro
+      - ./web/tsconfig.json:/app/web/tsconfig.json:ro
+      - ./web/index.html:/app/web/index.html:ro
+      - ./web/viewer.html:/app/web/viewer.html:ro
+      - ./web/streamer.html:/app/web/streamer.html:ro
+      - ./web/obs.html:/app/web/obs.html:ro
+      - ./web/admin.html:/app/web/admin.html:ro
+      - ./web/dev.html:/app/web/dev.html:ro
+      - ./.env:/app/.env:ro
+
+  # docker compose --profile test run --rm test
+  test:
+    profiles: ['test']
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: postgres://gta:gta@postgres:5432/gta_phuket_test
+      REDIS_URL: redis://redis:6379/1
+      DEV_MODE: 'true'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./server/src:/app/server/src:ro
+      - ./server/test:/app/server/test:ro
+    command: ['npm', 'run', 'test', '-w', 'server']
+
+volumes:
+  pgdata:

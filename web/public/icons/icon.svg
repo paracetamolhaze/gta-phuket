@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="IRL Waypoint">
+  <title>IRL Waypoint</title>
+  <!-- Dark plate. Everything below stays inside the maskable safe circle. -->
+  <rect width="512" height="512" rx="116" fill="#07100d"/>
+  <rect x="1" y="1" width="510" height="510" rx="115" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="2"/>
+
+  <!-- Soft amber halo under the pin -->
+  <circle cx="256" cy="206" r="132" fill="#ffc247" fill-opacity="0.08"/>
+
+  <!-- Waypoint pin -->
+  <path
+    d="M256 112c-52 0-94 42-94 94 0 62 78 122 91 131a5 5 0 0 0 6 0c13-9 91-69 91-131 0-52-42-94-94-94z"
+    fill="#ffc247"/>
+  <circle cx="256" cy="206" r="38" fill="#07100d"/>
+
+  <!-- Directional chevron: the way to walk -->
+  <path d="M200 424 L256 374 L312 424" fill="none" stroke="#45e0c0" stroke-width="26"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

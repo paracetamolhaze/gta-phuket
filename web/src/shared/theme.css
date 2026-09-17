@@ -1,0 +1,206 @@
+/* Shared HUD language.
+   Dark, mostly transparent, one accent. The map is the object; chrome stays
+   out of its way. No gradients-as-decoration, no marketing surfaces. */
+
+:root {
+  --ink-0: #05090c;
+  --ink-1: #0a1014;
+  --ink-2: #121a20;
+  --ink-3: #1d272f;
+
+  --glass: rgba(8, 14, 18, 0.82);
+  --glass-soft: rgba(10, 17, 22, 0.62);
+  --hairline: rgba(255, 255, 255, 0.11);
+  --hairline-strong: rgba(255, 255, 255, 0.2);
+
+  --text: #eef4f7;
+  --text-dim: #9fb0ba;
+  --text-faint: #64757f;
+
+  /* Single accent: the waypoint colour. Everything else is neutral. */
+  --accent: #ffc247;
+  --accent-ink: #1a1203;
+  --player: #45e0c0;
+  --danger: #ff6b5e;
+  --ok: #58d38c;
+
+  --radius-s: 8px;
+  --radius-m: 14px;
+  --radius-l: 20px;
+
+  --shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'SF Mono', ui-monospace, 'Cascadia Mono', 'Roboto Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--ink-0);
+}
+
+/* Surfaces that sit on top of live video must not paint a background. */
+body.page-viewer,
+body.page-obs {
+  background: transparent;
+}
+
+#root {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.mono {
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
+/* Small caps label used above every value in the HUD. */
+.label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.panel {
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-m);
+  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  box-shadow: var(--shadow);
+}
+
+/* Primary action. Big touch target, no gradient. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius-s);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--hairline-strong);
+  transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #ffcf6b;
+}
+
+.btn-danger {
+  color: var(--danger);
+  border-color: rgba(255, 107, 94, 0.4);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--hairline);
+}
+
+/* Status dot used by every surface to show GPS health. */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+.dot.ok {
+  background: var(--ok);
+  box-shadow: 0 0 8px rgba(88, 211, 140, 0.7);
+}
+.dot.warn {
+  background: var(--accent);
+}
+.dot.bad {
+  background: var(--danger);
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 99px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Mapbox chrome we never want on a HUD. */
+.mapboxgl-ctrl-logo,
+.mapboxgl-ctrl-attrib-button {
+  opacity: 0.35;
+}
+.hud-map .mapboxgl-ctrl-bottom-left,
+.hud-map .mapboxgl-ctrl-bottom-right {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

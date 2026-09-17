@@ -1,0 +1,97 @@
+/* An index, not a homepage: a name, one sentence, four doors. */
+
+.idx {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 18vh 24px 80px;
+}
+
+.idx-head {
+  margin-bottom: 34px;
+}
+
+.idx-title {
+  margin: 0 0 12px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  color: var(--text);
+}
+
+.idx-line {
+  margin: 0;
+  max-width: 54ch;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+
+.idx-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--hairline);
+}
+
+.idx-item {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 16px;
+  min-height: 62px;
+  padding: 14px 8px;
+  border-bottom: 1px solid var(--hairline);
+  text-decoration: none;
+  color: var(--text);
+  transition: background 120ms ease, padding-left 120ms ease;
+}
+
+.idx-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  padding-left: 14px;
+}
+
+.idx-item-path {
+  grid-row: 1 / span 2;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.idx-item:hover .idx-item-path {
+  color: var(--accent);
+}
+
+.idx-item-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.idx-item-note {
+  grid-column: 2;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.idx-foot {
+  margin: 28px 8px 0;
+  line-height: 1.6;
+}
+
+@media (max-width: 520px) {
+  .idx {
+    padding: 10vh 18px 60px;
+  }
+
+  .idx-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .idx-item-path {
+    grid-row: auto;
+  }
+
+  .idx-item-note {
+    grid-column: 1;
+  }
+}
