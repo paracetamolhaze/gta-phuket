@@ -21,6 +21,9 @@ import { resolve } from 'node:path';
 const PORT = Number(process.env.WEB_PORT ?? 8080);
 const apiTarget = process.env.VITE_PROXY_TARGET ?? 'http://localhost:4000';
 
+/** Set when building the bundle Caddy serves on the public hostname. */
+const publicBuild = process.env.PUBLIC_BUILD === 'true';
+
 /**
  * Twitch Local Test loads the extension from an https:// Testing Base URI and
  * refuses anything else, so the dev server has to speak TLS.
@@ -56,6 +59,26 @@ function httpsConfig(): { key: Buffer; cert: Buffer } | undefined {
       '            Run scripts/setup-certs.ps1 (Windows) or scripts/setup-certs.sh.\n',
   );
   return undefined;
+}
+
+/**
+ * Every HTML entry. The Twitch player simulator is left out of the public
+ * build: it mints extension tokens and fakes redemptions, and must not be
+ * reachable from the internet. Caddy blocks its path as well.
+ */
+function entryPoints(): Record<string, string> {
+  const entries: Record<string, string> = {
+    index: resolve(__dirname, 'index.html'),
+    privacy: resolve(__dirname, 'privacy.html'),
+    video_overlay: resolve(__dirname, 'video_overlay.html'),
+    mobile: resolve(__dirname, 'mobile.html'),
+    config: resolve(__dirname, 'config.html'),
+    streamer: resolve(__dirname, 'streamer.html'),
+    obs: resolve(__dirname, 'obs.html'),
+    admin: resolve(__dirname, 'admin.html'),
+  };
+  if (!publicBuild) entries.dev = resolve(__dirname, 'dev.html');
+  return entries;
 }
 
 export default defineConfig(({ mode, command }) => ({
@@ -112,16 +135,7 @@ export default defineConfig(({ mode, command }) => ({
     manifest: true,
     sourcemap: mode !== 'production',
     rollupOptions: {
-      input: {
-        index: resolve(__dirname, 'index.html'),
-        video_overlay: resolve(__dirname, 'video_overlay.html'),
-        mobile: resolve(__dirname, 'mobile.html'),
-        config: resolve(__dirname, 'config.html'),
-        streamer: resolve(__dirname, 'streamer.html'),
-        obs: resolve(__dirname, 'obs.html'),
-        admin: resolve(__dirname, 'admin.html'),
-        dev: resolve(__dirname, 'dev.html'),
-      },
+      input: entryPoints(),
     },
   },
 }));

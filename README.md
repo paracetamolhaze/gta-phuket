@@ -50,8 +50,13 @@ Twitch Extension → карта Пхукета → точка → walking route 
 | Симулятор Twitch-плеера | `/dev.html` | только локально, DEV_MODE |
 | API | `/api/*` | всё вышеперечисленное |
 
-Всё это раздаётся одним контейнером по HTTPS на `https://localhost:8080/`.
-Настройка Twitch-расширения — в [TWITCH_SETUP.md](TWITCH_SETUP.md).
+Локально всё раздаётся по HTTPS на `https://localhost:8080/`; публично —
+на `https://gudinigta6.duckdns.org` через ingress (собранный бандл, без
+dev-сервера). Приложение, Postgres и Redis при этом остаются на этой машине:
+наружу открыт только 443, и его терминирует Caddy соседнего стека.
+
+Настройка Twitch-расширения, публичного входа, портов и allowlists —
+в [TWITCH_SETUP.md](TWITCH_SETUP.md).
 
 Стек: Node 20 + TypeScript + Fastify + Socket.IO + PostgreSQL + Redis,
 фронтенд — React 18 + Vite + Mapbox GL JS v3.
@@ -132,10 +137,13 @@ docker compose up -d --build
 
 | Сервис | Порт | Проверка |
 | --- | --- | --- |
-| web (Vite, HTTPS) | 8080 | https://localhost:8080 |
-| api | 4000 | https://localhost:8080/api/health |
-| postgres | 55432 | — |
-| redis | 63790 | — |
+| web (Vite, HTTPS) | `127.0.0.1:8080` | https://localhost:8080 |
+| ingress (публичный вход) | `127.0.0.1:8081` | https://gudinigta6.duckdns.org |
+| api | `127.0.0.1:4000` | https://localhost:8080/api/health |
+| postgres | `127.0.0.1:55432` | — |
+| redis | `127.0.0.1:63790` | — |
+
+Всё привязано к loopback: наружу смотрит только ingress, и то через Caddy.
 
 Контейнер `web` терминирует TLS сам и проксирует `/api` и `/socket.io` на `api`,
 поэтому расширение, REST и `wss://` живут на одном доверенном origin. Без
@@ -524,7 +532,7 @@ npm test
 docker compose --profile test run --rm test
 ```
 
-95 тестов. Интеграционные сами создают базу `gta_phuket_test`, а если Postgres
+103 теста. Интеграционные сами создают базу `gta_phuket_test`, а если Postgres
 или Redis недоступны — помечаются как skipped с объяснением, а не падают.
 
 Покрыто: расчёт цены, истечение расчёта, устаревший GPS, максимальная

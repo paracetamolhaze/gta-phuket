@@ -62,13 +62,38 @@ const schema = z.object({
    * through X-Forwarded-For and walk past the login rate limits.
    */
   TRUST_PROXY: z.string().default('false'),
+
+  /**
+   * Switches the whole Twitch side from the local stub to the real thing.
+   *
+   * DEV_MODE stays what it is — the simulator, the fake extension tokens, the
+   * GPS walker — but with REAL_TWITCH on, none of it may touch Channel Points:
+   * rewards, redemptions and EventSub all go to Twitch for real, and the
+   * dev endpoints are switched off so a simulated redemption can never be
+   * mistaken for a paid one.
+   */
+  REAL_TWITCH: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
 });
 
 export type Env = z.infer<typeof schema> & {
   isProduction: boolean;
   isTest: boolean;
   devModeEnabled: boolean;
+  /** True when the app must talk to the real Twitch API and nothing else. */
+  realTwitch: boolean;
 };
+
+/** Everything REAL_TWITCH cannot work without. */
+const REAL_TWITCH_REQUIRED = [
+  'TWITCH_EXT_SECRET',
+  'TWITCH_CLIENT_ID',
+  'TWITCH_CLIENT_SECRET',
+  'TWITCH_CHANNEL_ID',
+  'TWITCH_EVENTSUB_SECRET',
+] as const;
 
 /** Values that ship in .env.example and must never survive into production. */
 const INSECURE_DEFAULTS: Record<string, string[]> = {
@@ -101,12 +126,48 @@ function build(): Env {
     }
   }
 
+  const realTwitch = parsed.REAL_TWITCH;
+
+  if (realTwitch) {
+    // Half-configured real mode is worse than dev mode: the app would create
+    // rewards it cannot manage, or accept webhooks it cannot verify.
+    const missing = REAL_TWITCH_REQUIRED.filter((key) => !String(parsed[key] ?? '').trim());
+    if (missing.length) {
+      throw new Error(
+        `REAL_TWITCH=true but these are empty: ${missing.join(', ')}. ` +
+          'Fill them in .env, or set REAL_TWITCH=false to keep using the local stub.',
+      );
+    }
+    if (!/^\d+$/.test(parsed.TWITCH_CHANNEL_ID)) {
+      throw new Error(
+        `REAL_TWITCH=true needs a numeric TWITCH_CHANNEL_ID (the id, not the login). ` +
+          `Got "${parsed.TWITCH_CHANNEL_ID}".`,
+      );
+    }
+    // Twitch will not deliver EventSub to http:// or to a name it cannot
+    // resolve, and it would fail silently hours later rather than loudly now.
+    if (!parsed.PUBLIC_API_URL.startsWith('https://')) {
+      throw new Error(
+        `REAL_TWITCH=true needs an https PUBLIC_API_URL for the EventSub callback. ` +
+          `Got "${parsed.PUBLIC_API_URL}".`,
+      );
+    }
+    if (/^https:\/\/(localhost|127\.|\[::1\])/.test(parsed.PUBLIC_API_URL)) {
+      throw new Error(
+        'REAL_TWITCH=true needs a PUBLIC_API_URL Twitch can reach. ' +
+          `"${parsed.PUBLIC_API_URL}" is this machine only.`,
+      );
+    }
+  }
+
   return {
     ...parsed,
     isProduction,
     isTest: parsed.NODE_ENV === 'test',
-    // Dev endpoints are hard-disabled in production regardless of the flag.
-    devModeEnabled: parsed.DEV_MODE && !isProduction,
+    realTwitch,
+    // Dev endpoints are hard-disabled in production, and in real Twitch mode:
+    // a simulated redemption must never be able to stand in for a paid one.
+    devModeEnabled: parsed.DEV_MODE && !isProduction && !realTwitch,
   };
 }
 

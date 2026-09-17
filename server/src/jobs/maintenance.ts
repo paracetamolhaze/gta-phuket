@@ -6,10 +6,11 @@ import { pruneGpsSamples } from '../domain/gps.js';
 import { emitSlotCounts, expireStaleQuotes } from '../domain/waypointFlow.js';
 import { query } from '../db/pool.js';
 import { getSlot, releaseSlot } from '../domain/slots.js';
-import { pruneEventSubEvents } from '../twitch/eventsub.js';
+import { pruneEventSubEvents, retryPendingEvents } from '../twitch/eventsub.js';
 import { broadcastGpsStale } from '../realtime/gpsBroadcast.js';
 
 const QUOTE_SWEEP_MS = 5000;
+const EVENT_RETRY_MS = 15_000;
 const GPS_WATCH_MS = 5000;
 const SLOT_REAP_MS = 30_000;
 const RETENTION_MS = 60 * 60 * 1000;
@@ -49,6 +50,18 @@ export function startMaintenanceJobs(channelId: string): void {
   // A crash between leaseSlot and attachSlot leaves a RESERVED slot that no
   // quote points at, which the quote-driven sweep can never see. reserved_at is
   // the only handle on it.
+  // The webhook acknowledges Twitch before the work runs, so anything that
+  // failed afterwards is finished here instead of being lost with the response.
+  timers.push(
+    setInterval(() => {
+      void retryPendingEvents(30, 10)
+        .then((n) => {
+          if (n) logger.warn({ count: n }, 'retried eventsub events');
+        })
+        .catch((err) => logger.debug({ err }, 'eventsub retry sweep failed'));
+    }, EVENT_RETRY_MS),
+  );
+
   timers.push(
     setInterval(() => {
       void (async () => {

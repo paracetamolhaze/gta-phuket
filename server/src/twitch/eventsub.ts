@@ -429,6 +429,141 @@ export async function handleRedemption(event: RedemptionEvent): Promise<Redempti
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Deferred processing
+//
+// The webhook answers Twitch as soon as the event is durably recorded, and the
+// business logic runs after. Twitch wants a fast 2xx and redelivers when it
+// does not get one; our handler makes several Twitch API calls and can take
+// seconds, so doing it inline risks a timeout — and a timeout means a
+// redelivery of an event we are still working on.
+//
+// Losing the event is not a possibility: it is in eventsub_events before the
+// response goes out, and anything that fails is retried from there.
+// ---------------------------------------------------------------------------
+
+/** Give up after this many attempts and leave the row for a human. */
+export const MAX_EVENT_ATTEMPTS = 5;
+
+export async function markEventProcessed(messageId: string): Promise<void> {
+  await query(
+    `UPDATE eventsub_events
+        SET processed_at = now(), attempts = attempts + 1, last_error = NULL
+      WHERE message_id = $1`,
+    [messageId],
+  );
+}
+
+export async function markEventFailed(messageId: string, err: unknown): Promise<number> {
+  const message = err instanceof Error ? err.message : String(err);
+  const { rows } = await query<{ attempts: number }>(
+    `UPDATE eventsub_events
+        SET attempts = attempts + 1, last_error = $2
+      WHERE message_id = $1
+      RETURNING attempts`,
+    [messageId, message.slice(0, 500)],
+  );
+  return rows[0]?.attempts ?? 0;
+}
+
+/**
+ * Run one stored event. Safe to call again for the same message: the
+ * per-redemption Redis marker and the unique key on twitch_redemptions make a
+ * second run a no-op rather than a second waypoint.
+ */
+export async function processStoredEvent(input: {
+  messageId: string;
+  subscriptionType: string;
+  payload: { event?: unknown };
+}): Promise<void> {
+  if (input.subscriptionType === REDEMPTION_ADD) {
+    const event = parseRedemption(input.messageId, input.payload.event);
+    if (!event) {
+      logger.warn({ messageId: input.messageId }, 'unparseable redemption payload');
+      return;
+    }
+    const outcome = await handleRedemption(event);
+    logger.info({ outcome, user: event.userId, reward: event.rewardId }, 'redemption handled');
+    if (outcome.result === 'activated' || outcome.result === 'refunded') {
+      const { emitSlotCounts } = await import('../domain/waypointFlow.js');
+      await emitSlotCounts(event.broadcasterUserId).catch(() => undefined);
+    }
+    return;
+  }
+
+  if (input.subscriptionType === REDEMPTION_UPDATE) {
+    // A moderator resolving a redemption in the Twitch UI. Recorded for the
+    // audit trail; the waypoint itself is driven by the add event.
+    const event = parseRedemption(input.messageId, input.payload.event);
+    if (!event) return;
+    await query('UPDATE twitch_redemptions SET resolution = $2 WHERE id = $1', [
+      event.redemptionId,
+      event.status.toUpperCase(),
+    ]).catch(() => undefined);
+    logger.info(
+      { redemption: event.redemptionId, status: event.status },
+      'redemption status updated externally',
+    );
+    return;
+  }
+
+  logger.debug({ subscriptionType: input.subscriptionType }, 'unhandled eventsub type');
+}
+
+/** Process one event and record the outcome. Never throws. */
+export async function runEvent(input: {
+  messageId: string;
+  subscriptionType: string;
+  payload: { event?: unknown };
+}): Promise<void> {
+  try {
+    await processStoredEvent(input);
+    await markEventProcessed(input.messageId);
+  } catch (err) {
+    const attempts = await markEventFailed(input.messageId, err).catch(() => 0);
+    logger.error(
+      { err, messageId: input.messageId, attempts },
+      attempts >= MAX_EVENT_ATTEMPTS
+        ? 'eventsub processing failed permanently — needs a look'
+        : 'eventsub processing failed, will retry',
+    );
+  }
+}
+
+interface PendingRow {
+  message_id: string;
+  subscription_type: string;
+  payload: { event?: unknown };
+}
+
+/**
+ * Retry events that were acknowledged but never finished. Backs off by only
+ * picking up rows older than `minAgeSeconds`, so a run that is still in flight
+ * is not started a second time.
+ */
+export async function retryPendingEvents(minAgeSeconds = 30, limit = 10): Promise<number> {
+  const { rows } = await query<PendingRow>(
+    `SELECT message_id, subscription_type, payload
+       FROM eventsub_events
+      WHERE processed_at IS NULL
+        AND attempts < $1
+        AND received_at < now() - ($2 || ' seconds')::interval
+      ORDER BY received_at
+      LIMIT $3`,
+    [MAX_EVENT_ATTEMPTS, String(Math.max(1, minAgeSeconds)), limit],
+  );
+
+  for (const row of rows) {
+    await runEvent({
+      messageId: row.message_id,
+      subscriptionType: row.subscription_type,
+      payload: row.payload ?? {},
+    });
+  }
+  return rows.length;
+}
+
 // ---------------------------------------------------------------------------
 // Subscription management
 // ---------------------------------------------------------------------------
@@ -485,8 +620,12 @@ export async function ensureEventSubSubscriptions(
 
 /** Housekeeping for the durable idempotency table. */
 export async function pruneEventSubEvents(days = 7): Promise<number> {
+  // Only rows that were actually handled. An unprocessed one still owes the
+  // viewer either a waypoint or a refund, and deleting it would lose both.
   const { rowCount } = await query(
-    `DELETE FROM eventsub_events WHERE received_at < now() - ($1 || ' days')::interval`,
+    `DELETE FROM eventsub_events
+      WHERE processed_at IS NOT NULL
+        AND received_at < now() - ($1 || ' days')::interval`,
     [String(Math.max(1, Math.trunc(days)))],
   );
   return rowCount ?? 0;

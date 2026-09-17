@@ -1,0 +1,92 @@
+# Ingress for the gta-phuket stack.
+#
+# Nothing moves to a cloud. This Caddy runs next to the app on the same machine
+# and is the single door into it: Postgres, Redis and the API are bound to
+# 127.0.0.1 and reachable only over the private Docker network.
+#
+# TLS is NOT terminated here. Port 443 on this machine already belongs to the
+# gudini stack's Caddy, which holds the Let's Encrypt certificates and fronts
+# several local projects the same way (see the `lotomal` block in its
+# Caddyfile). This ingress therefore listens on plain HTTP on 8081, published
+# only on 127.0.0.1, and that outer Caddy forwards the public hostname to it.
+# All gta-phuket routing still lives here, in this repository.
+#
+#   internet :443 -> gudini-caddy (TLS, Let's Encrypt)
+#                 -> host.docker.internal:8081
+#                 -> this file
+#                       /api/*, /socket.io/*  -> api:4000
+#                       everything else       -> /srv/web (built bundle)
+#
+# The Vite dev server is deliberately NOT behind this: it serves /@fs and the
+# whole source tree. It stays on https://localhost:8080 for local work, and the
+# public hostname gets the same pages after `vite build`.
+
+{
+	# No ACME here — the outer Caddy owns the certificate.
+	auto_https off
+	admin off
+	log {
+		output stdout
+		format console
+	}
+}
+
+:8081 {
+	encode zstd gzip
+
+	header {
+		# The extension is framed by Twitch, so nothing here may forbid framing.
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	# ---------------------------------------------------------------- dev lock
+	# Simulated redemptions, fake extension tokens and the GPS simulator must
+	# never be reachable from the internet. The server also refuses them unless
+	# DEV_MODE is on, and PUBLIC_BUILD keeps dev.html out of the bundle — this
+	# is the third of three locks.
+	@dev path /api/dev /api/dev/* /dev.html /dev
+	respond @dev 404
+
+	# ------------------------------------------------------------ api + socket
+	@backend path /api/* /socket.io/*
+	reverse_proxy @backend api:4000 {
+		# The scheme the *browser* used is what matters, and only the outer
+		# Caddy knows it. Pass its value through instead of overwriting it with
+		# this hop's plain http.
+		header_up X-Forwarded-Proto {header.X-Forwarded-Proto}
+		header_up X-Forwarded-Host {header.X-Forwarded-Host}
+		header_up X-Real-IP {header.X-Forwarded-For}
+		# Socket.IO: WebSocket upgrades are proxied natively, and buffering off
+		# keeps latency down for the live GPS stream.
+		flush_interval -1
+		lb_try_duration 10s
+		lb_try_interval 250ms
+		# A config reload must not drop viewers mid-mission.
+		stream_close_delay 5m
+	}
+
+	# ------------------------------------------------------------ friendly URLs
+	@privacy path /privacy
+	rewrite @privacy /privacy.html
+	@streamer path /streamer
+	rewrite @streamer /streamer.html
+	@obs path /obs
+	rewrite @obs /obs.html
+	@admin path /admin
+	rewrite @admin /admin.html
+	@config path /config
+	rewrite @config /config.html
+	@overlay path /video_overlay
+	rewrite @overlay /video_overlay.html
+	@mobile path /mobile
+	rewrite @mobile /mobile.html
+
+	# ------------------------------------------------------------------ static
+	# The built surfaces. Twitch Local Test points its Testing Base URI here, so
+	# these files must be reachable without any authentication. /admin.html is
+	# served too, but the admin API behind it still requires the admin password.
+	root * /srv/web
+	file_server
+}

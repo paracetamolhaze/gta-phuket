@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# GTA Phuket — публичный вход.
+#
+# Куда вставить: C:\Users\almaz\Desktop\gudini\deploy\caddy\Caddyfile,
+# в конец файла, рядом с блоком lotomal.duckdns.org.
+#
+# Почему так, а не свой Caddy: 80/443 на этой машине уже держит gudini-caddy,
+# у него же лежат сертификаты Let's Encrypt и собран модуль caddy-dns/duckdns.
+# Второй Caddy эти порты просто не займёт. Точно так же сюда уже подключён
+# lotomal — отдельный локальный проект через host.docker.internal.
+#
+# Вся маршрутизация gta-phuket (статика, /api, /socket.io, блокировка
+# /api/dev/*) живёт в D:\gta-phuket\Caddyfile, внутри своего ingress-контейнера
+# на 127.0.0.1:8081. Здесь только TLS и один проброс.
+#
+# После вставки:
+#   docker exec gudini-caddy caddy reload --config /etc/caddy/Caddyfile
+# ---------------------------------------------------------------------------
+gudinigta6.duckdns.org {
+	reverse_proxy host.docker.internal:8081 {
+		# ingress может перезапускаться вместе со стеком — подождать, а не 502
+		lb_try_duration 10s
+		lb_try_interval 250ms
+		# reload конфига не рвёт WebSocket зрителей посреди миссии
+		stream_close_delay 5m
+		# живой GPS-поток не буферизуется
+		flush_interval -1
+	}
+	# Сертификат выпускается автоматически через TLS-ALPN-01 на 443 — ровно так
+	# же, как у lotomal в этом же файле. DNS-01 здесь не используется намеренно:
+	# DUCKDNS_TOKEN в этом стеке принадлежит другому аккаунту DuckDNS и для
+	# gudinigta6 возвращает KO. TLS-ALPN токена не требует вообще.
+}

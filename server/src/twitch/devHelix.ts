@@ -21,7 +21,13 @@ export function twitchConfigured(): boolean {
   return Boolean(env.TWITCH_CLIENT_ID && env.TWITCH_CLIENT_SECRET);
 }
 
+/**
+ * The stub is only ever used when there is no real Twitch application to talk
+ * to AND real mode is off. REAL_TWITCH is checked first and on its own, so that
+ * turning it on can never silently leave a simulated reward in the flow.
+ */
 export function useDevHelix(): boolean {
+  if (env.realTwitch) return false;
   return env.devModeEnabled && !twitchConfigured();
 }
 

@@ -5,8 +5,10 @@ services:
       POSTGRES_USER: gta
       POSTGRES_PASSWORD: gta
       POSTGRES_DB: gta_phuket
+    # Loopback only. The database is never exposed to the LAN, let alone the
+    # internet; the app reaches it over the private Docker network.
     ports:
-      - '55432:5432'
+      - '127.0.0.1:55432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,7 +21,7 @@ services:
     image: redis:7-alpine
     command: ['redis-server', '--appendonly', 'no']
     ports:
-      - '63790:6379'
+      - '127.0.0.1:63790:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 3s
@@ -38,21 +40,21 @@ services:
       HOST: 0.0.0.0
       DATABASE_URL: postgres://gta:gta@postgres:5432/gta_phuket
       REDIS_URL: redis://redis:6379
-      # Both default to the HTTPS dev origin: the web container proxies /api and
-      # /socket.io, so the extension, the OAuth callback and the EventSub
-      # callback all live behind one trusted origin. Override in .env when a
-      # tunnel is in front.
       PUBLIC_API_URL: ${PUBLIC_API_URL:-https://localhost:8080}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://localhost:8080}
+      # Two proxies sit in front on the public path (gudini-caddy, then the
+      # ingress below), both on Docker/loopback ranges. Anything arriving from
+      # elsewhere cannot forge its IP past this.
+      TRUST_PROXY: ${TRUST_PROXY:-127.0.0.1/8,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
+    # Loopback only: the public entry point is the ingress, not this.
     ports:
-      - '4000:4000'
+      - '127.0.0.1:4000:4000'
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      # Source is mounted so edits are picked up without a rebuild.
       - ./server/src:/app/server/src:ro
       - ./server/tsconfig.json:/app/server/tsconfig.json:ro
     healthcheck:
@@ -61,10 +63,9 @@ services:
       timeout: 5s
       retries: 20
 
-  # Serves every browser surface, including the three Twitch extension pages,
-  # over HTTPS on 8080 — the origin Twitch Local Test is pointed at. Certificates
-  # come from scripts/setup-certs.*; without them it falls back to plain HTTP and
-  # says so in the logs.
+  # Vite dev server over HTTPS on 8080, for local work and for Twitch Local Test
+  # against https://localhost:8080. Loopback only — a dev server serves /@fs and
+  # the whole source tree and has no business being reachable from the LAN.
   web:
     build:
       context: .
@@ -78,8 +79,10 @@ services:
       VITE_MAPBOX_STYLE_URL: ${MAPBOX_STYLE_URL:-mapbox://styles/mapbox/dark-v11}
       VITE_DEV_MODE: ${DEV_MODE:-false}
       VITE_API_BASE: ${VITE_API_BASE:-}
+      VITE_PUBLIC_ORIGIN: ${PUBLIC_WEB_URL:-https://localhost:8080}
+      VITE_PRIVACY_CONTACT: ${PRIVACY_CONTACT:-напишите владельцу канала в личные сообщения Twitch}
     ports:
-      - '8080:8080'
+      - '127.0.0.1:8080:8080'
     depends_on:
       - api
     volumes:
@@ -89,6 +92,7 @@ services:
       - ./web/vite.config.ts:/app/web/vite.config.ts:ro
       - ./web/tsconfig.json:/app/web/tsconfig.json:ro
       - ./web/index.html:/app/web/index.html:ro
+      - ./web/privacy.html:/app/web/privacy.html:ro
       - ./web/video_overlay.html:/app/web/video_overlay.html:ro
       - ./web/mobile.html:/app/web/mobile.html:ro
       - ./web/config.html:/app/web/config.html:ro
@@ -97,8 +101,77 @@ services:
       - ./web/admin.html:/app/web/admin.html:ro
       - ./web/dev.html:/app/web/dev.html:ro
       - ./.env:/app/.env:ro
-      # Read-only: the container only ever reads the key, never writes one.
       - ./certs:/app/certs:ro
+
+  # One-shot: produces the bundle the public hostname serves. Runs on every
+  # `docker compose up`, so the public pages never lag behind the source.
+  # PUBLIC_BUILD drops dev.html from the output.
+  webbuild:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PUBLIC_BUILD: 'true'
+      NODE_ENV: production
+      VITE_MAPBOX_PUBLIC_TOKEN: ${MAPBOX_PUBLIC_TOKEN}
+      VITE_MAPBOX_STYLE_URL: ${MAPBOX_STYLE_URL:-mapbox://styles/mapbox/dark-v11}
+      # Empty on purpose: the bundle and the API are served from the same public
+      # origin, so same-origin calls need no CORS and no CSP allowlist entry.
+      VITE_API_BASE: ${VITE_API_BASE:-}
+      VITE_DEV_MODE: 'false'
+      VITE_PUBLIC_ORIGIN: ${PUBLIC_WEB_URL:-https://localhost:8080}
+      VITE_PRIVACY_CONTACT: ${PRIVACY_CONTACT:-напишите владельцу канала в личные сообщения Twitch}
+    entrypoint: ['npx']
+    command: ['vite', 'build', '--config', 'web/vite.config.ts']
+    volumes:
+      - ./web/src:/app/web/src:ro
+      - ./web/public:/app/web/public:ro
+      - ./web/vite.config.ts:/app/web/vite.config.ts:ro
+      - ./web/index.html:/app/web/index.html:ro
+      - ./web/privacy.html:/app/web/privacy.html:ro
+      - ./web/video_overlay.html:/app/web/video_overlay.html:ro
+      - ./web/mobile.html:/app/web/mobile.html:ro
+      - ./web/config.html:/app/web/config.html:ro
+      - ./web/streamer.html:/app/web/streamer.html:ro
+      - ./web/obs.html:/app/web/obs.html:ro
+      - ./web/admin.html:/app/web/admin.html:ro
+      - ./.env:/app/.env:ro
+      - webdist:/app/web/dist
+    restart: 'no'
+
+  # The single door into this stack from the outside. Plain HTTP on loopback
+  # 8081; TLS is terminated by the gudini stack's Caddy, which already owns
+  # 443 and the Let's Encrypt certificates. See Caddyfile and
+  # deploy/gudini-caddy-snippet.caddy.
+  ingress:
+    image: caddy:2-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+      webbuild:
+        condition: service_completed_successfully
+    ports:
+      - '127.0.0.1:8081:8081'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - webdist:/srv/web:ro
+      - ingress-data:/data
+      - ingress-config:/config
+    restart: unless-stopped
+
+  # Keeps gudinigta6.duckdns.org pointing at this machine's current public IP.
+  # The token is read from .env and never printed: LOG_FILE=false keeps the
+  # image from writing the update URL anywhere.
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    environment:
+      SUBDOMAINS: ${DUCKDNS_SUBDOMAIN:-}
+      TOKEN: ${DUCKDNS_TOKEN:-}
+      UPDATE_IP: ipv4
+      LOG_FILE: 'false'
+    restart: unless-stopped
 
   # docker compose --profile test run --rm test
   test:
@@ -113,6 +186,7 @@ services:
       DATABASE_URL: postgres://gta:gta@postgres:5432/gta_phuket_test
       REDIS_URL: redis://redis:6379/1
       DEV_MODE: 'true'
+      REAL_TWITCH: 'false'
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,33 +197,24 @@ services:
       - ./server/test:/app/server/test:ro
     command: ['npm', 'run', 'test', '-w', 'server']
 
-  # Opt-in public HTTPS tunnel for REAL TWITCH TEST:
-  #
+  # Fallback only, for the day the router cannot forward 443:
   #   docker compose --profile tunnel up -d cloudflared
-  #   docker compose logs cloudflared | grep trycloudflare.com
-  #
-  # Twitch's servers cannot reach localhost, so EventSub needs a public URL.
-  # Everything still runs here — the tunnel only forwards HTTPS to the local api
-  # container. Nothing is deployed anywhere.
-  #
-  # Put the printed URL into PUBLIC_API_URL (and VITE_API_BASE), recreate api and
-  # web, then press "СИНХР. EVENTSUB" in /admin so Twitch re-subscribes to the
-  # new callback.
+  # Everything still runs here; the tunnel just forwards HTTPS to the ingress.
   cloudflared:
     profiles: ['tunnel']
     image: cloudflare/cloudflared:latest
-    # A quick tunnel needs no Cloudflare account and prints a random
-    # https://<name>.trycloudflare.com URL. Set CLOUDFLARE_TUNNEL_TOKEN in .env
-    # to use a named tunnel with a stable hostname instead.
     command: >
       sh -c 'if [ -n "$${CLOUDFLARE_TUNNEL_TOKEN}" ];
              then exec cloudflared tunnel --no-autoupdate run --token "$${CLOUDFLARE_TUNNEL_TOKEN}";
-             else exec cloudflared tunnel --no-autoupdate --url http://api:4000; fi'
+             else exec cloudflared tunnel --no-autoupdate --url http://ingress:8081; fi'
     environment:
       CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
-      - api
+      - ingress
     restart: unless-stopped
 
 volumes:
   pgdata:
+  webdist:
+  ingress-data:
+  ingress-config:

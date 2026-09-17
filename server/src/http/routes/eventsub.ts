@@ -1,30 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { logger } from '../../logger.js';
 import {
-  REDEMPTION_ADD,
-  REDEMPTION_UPDATE,
   claimMessage,
-  handleRedemption,
-  parseRedemption,
   readEventSubHeaders,
+  runEvent,
   verifySignature,
 } from '../../twitch/eventsub.js';
-import { emitSlotCounts } from '../../domain/waypointFlow.js';
-import { query } from '../../db/pool.js';
-import { redis } from '../../redis/client.js';
-import { K } from '../../redis/keys.js';
-
-/**
- * Undo everything claimMessage() recorded, so the retry Twitch is guaranteed to
- * send is processed instead of being mistaken for a duplicate.
- */
-async function releaseClaim(messageId: string, redemptionId: string | null): Promise<void> {
-  const keys = redemptionId
-    ? [K.eventSeen(messageId), K.redemptionSeen(redemptionId)]
-    : [K.eventSeen(messageId)];
-  await redis.del(...keys).catch(() => undefined);
-  await query('DELETE FROM eventsub_events WHERE message_id = $1', [messageId]).catch(() => undefined);
-}
 
 interface NotificationBody {
   subscription?: { id?: string; type?: string; condition?: Record<string, string> };
@@ -97,49 +78,18 @@ export async function registerEventSubRoutes(app: FastifyInstance): Promise<void
         return reply.code(204).send();
       }
 
-      if (subscriptionType === REDEMPTION_ADD) {
-        const event = parseRedemption(headers.messageId, body.event);
-        if (!event) {
-          logger.warn({ messageId: headers.messageId }, 'unparseable redemption payload');
-          return reply.code(204).send();
-        }
+      // The event is now durably recorded, so Twitch can be released. The work
+      // itself — fulfil or refund, rewrite rewards, free the other slots — runs
+      // after the response, because it is several Twitch API calls deep and
+      // holding the webhook open for it invites a timeout, and a timeout
+      // invites a redelivery of an event already being processed.
+      //
+      // Nothing is lost by answering early: runEvent() records success or
+      // failure on the row, and retryPendingEvents() picks up whatever failed.
+      setImmediate(() => {
+        void runEvent({ messageId: headers.messageId, subscriptionType, payload: body });
+      });
 
-        try {
-          const outcome = await handleRedemption(event);
-          logger.info({ outcome, user: event.userId, reward: event.rewardId }, 'redemption handled');
-          if (outcome.result === 'activated' || outcome.result === 'refunded') {
-            await emitSlotCounts(event.broadcasterUserId).catch(() => undefined);
-          }
-        } catch (err) {
-          // Returning 500 makes Twitch retry. Both dedupe layers were already
-          // written, so BOTH have to be released or the retry would be treated
-          // as a duplicate and dropped — leaving the viewer charged with no
-          // waypoint and no refund.
-          logger.error({ err, messageId: headers.messageId }, 'redemption handling failed');
-          await releaseClaim(headers.messageId, event.redemptionId);
-          return reply.code(500).send({ error: 'internal', message: 'processing failed' });
-        }
-        return reply.code(204).send();
-      }
-
-      if (subscriptionType === REDEMPTION_UPDATE) {
-        // A moderator resolving a redemption in the Twitch UI. We record it for
-        // the audit trail; the waypoint itself is driven by the add event.
-        const event = parseRedemption(headers.messageId, body.event);
-        if (event) {
-          await query(
-            `UPDATE twitch_redemptions SET resolution = $2 WHERE id = $1`,
-            [event.redemptionId, event.status.toUpperCase()],
-          ).catch(() => undefined);
-          logger.info(
-            { redemption: event.redemptionId, status: event.status },
-            'redemption status updated externally',
-          );
-        }
-        return reply.code(204).send();
-      }
-
-      logger.debug({ subscriptionType }, 'unhandled eventsub type');
       return reply.code(204).send();
     },
   );

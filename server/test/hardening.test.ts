@@ -325,3 +325,187 @@ d('EventSub retry after a handler failure', () => {
     expect(await claimMessage(messageId, 'test.type', TEST_CHANNEL, {})).toBe(true);
   });
 });
+
+describe('REAL_TWITCH mode', () => {
+  const REAL_ENV = {
+    REAL_TWITCH: 'true',
+    TWITCH_EXT_SECRET: 'ZXh0LXNlY3JldA==',
+    TWITCH_CLIENT_ID: 'abcdef1234567890',
+    TWITCH_CLIENT_SECRET: 'secret-1234567890',
+    TWITCH_CHANNEL_ID: '123456789',
+    TWITCH_EVENTSUB_SECRET: 'a-properly-long-eventsub-secret',
+    PUBLIC_API_URL: 'https://gudinigta6.duckdns.org',
+  };
+
+  async function withEnv<T>(overrides: Record<string, string>, fn: () => T): Promise<T> {
+    const { reloadEnv } = await import('../src/env.js');
+    const saved = { ...process.env };
+    try {
+      Object.assign(process.env, overrides);
+      return fn();
+    } finally {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in saved)) delete process.env[key];
+      }
+      Object.assign(process.env, saved);
+      reloadEnv();
+    }
+  }
+
+  it('refuses to boot when a Twitch value is missing', async () => {
+    const { reloadEnv } = await import('../src/env.js');
+    await withEnv({ ...REAL_ENV, TWITCH_CLIENT_SECRET: '' }, () => {
+      // Half-configured real mode would create rewards it cannot manage, or
+      // accept webhooks it cannot verify. Failing at boot is the honest answer.
+      expect(() => reloadEnv()).toThrowError(/TWITCH_CLIENT_SECRET/);
+    });
+  });
+
+  it('refuses a channel login where a numeric id belongs', async () => {
+    const { reloadEnv } = await import('../src/env.js');
+    await withEnv({ ...REAL_ENV, TWITCH_CHANNEL_ID: 'gudini_younger' }, () => {
+      expect(() => reloadEnv()).toThrowError(/numeric TWITCH_CHANNEL_ID/);
+    });
+  });
+
+  it('refuses a callback URL Twitch cannot reach', async () => {
+    const { reloadEnv } = await import('../src/env.js');
+    await withEnv({ ...REAL_ENV, PUBLIC_API_URL: 'http://gudinigta6.duckdns.org' }, () => {
+      expect(() => reloadEnv()).toThrowError(/https PUBLIC_API_URL/);
+    });
+    await withEnv({ ...REAL_ENV, PUBLIC_API_URL: 'https://localhost:8080' }, () => {
+      expect(() => reloadEnv()).toThrowError(/this machine only/);
+    });
+  });
+
+  it('switches off the local stub and the dev endpoints', async () => {
+    const { reloadEnv, env } = await import('../src/env.js');
+    const { useDevHelix } = await import('../src/twitch/devHelix.js');
+    await withEnv({ ...REAL_ENV, DEV_MODE: 'true' }, () => {
+      reloadEnv();
+      expect(env.realTwitch).toBe(true);
+      // A simulated redemption must never be able to stand in for a paid one.
+      expect(env.devModeEnabled).toBe(false);
+      expect(useDevHelix()).toBe(false);
+    });
+  });
+
+  it('accepts a fully configured real setup', async () => {
+    const { reloadEnv } = await import('../src/env.js');
+    await withEnv(REAL_ENV, () => {
+      expect(() => reloadEnv()).not.toThrow();
+    });
+  });
+});
+
+d('EventSub is acknowledged before it is processed', () => {
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedRewardPool(2);
+  });
+
+  it('records the outcome on the stored event', async () => {
+    const { claimMessage, runEvent } = await import('../src/twitch/eventsub.js');
+    const { query } = await import('../src/db/pool.js');
+
+    const messageId = randomUUID();
+    // A redemption for a reward that is not ours: handled, ignored, done.
+    const payload = {
+      event: {
+        id: randomUUID(),
+        broadcaster_user_id: TEST_CHANNEL,
+        user_id: '100000001',
+        user_login: 'v',
+        user_name: 'V',
+        user_input: '',
+        status: 'unfulfilled',
+        redeemed_at: new Date().toISOString(),
+        reward: { id: 'not-ours', title: 'x', cost: 1, prompt: '' },
+      },
+    };
+
+    expect(
+      await claimMessage(messageId, 'channel.channel_points_custom_reward_redemption.add', TEST_CHANNEL, payload),
+    ).toBe(true);
+
+    await runEvent({
+      messageId,
+      subscriptionType: 'channel.channel_points_custom_reward_redemption.add',
+      payload,
+    });
+
+    const { rows } = await query<{ processed_at: Date | null; attempts: number }>(
+      'SELECT processed_at, attempts FROM eventsub_events WHERE message_id = $1',
+      [messageId],
+    );
+    expect(rows[0]?.processed_at).not.toBeNull();
+    expect(rows[0]?.attempts).toBe(1);
+  });
+
+  it('retries an event that was acknowledged but never finished', async () => {
+    const { retryPendingEvents } = await import('../src/twitch/eventsub.js');
+    const { query } = await import('../src/db/pool.js');
+
+    const messageId = randomUUID();
+    // Stand in for "answered 204, then the process died mid-work".
+    await query(
+      `INSERT INTO eventsub_events (message_id, subscription_type, channel_id, payload, received_at)
+       VALUES ($1, 'channel.channel_points_custom_reward_redemption.update', $2, $3::jsonb,
+               now() - interval '2 minutes')`,
+      [
+        messageId,
+        TEST_CHANNEL,
+        JSON.stringify({
+          event: {
+            id: randomUUID(),
+            broadcaster_user_id: TEST_CHANNEL,
+            user_id: '100000001',
+            user_login: 'v',
+            user_name: 'V',
+            user_input: '',
+            status: 'fulfilled',
+            redeemed_at: new Date().toISOString(),
+            reward: { id: 'r', title: 'x', cost: 1, prompt: '' },
+          },
+        }),
+      ],
+    );
+
+    expect(await retryPendingEvents(30, 10)).toBe(1);
+
+    const { rows } = await query<{ processed_at: Date | null }>(
+      'SELECT processed_at FROM eventsub_events WHERE message_id = $1',
+      [messageId],
+    );
+    expect(rows[0]?.processed_at).not.toBeNull();
+    // A finished event is not picked up twice.
+    expect(await retryPendingEvents(30, 10)).toBe(0);
+  });
+
+  it('keeps unprocessed events out of the retention sweep', async () => {
+    const { pruneEventSubEvents } = await import('../src/twitch/eventsub.js');
+    const { query } = await import('../src/db/pool.js');
+
+    const pending = randomUUID();
+    const done = randomUUID();
+    for (const [id, processed] of [
+      [pending, false],
+      [done, true],
+    ] as const) {
+      await query(
+        `INSERT INTO eventsub_events (message_id, subscription_type, channel_id, payload, received_at, processed_at)
+         VALUES ($1, 'test', $2, '{}'::jsonb, now() - interval '30 days', $3)`,
+        [id, TEST_CHANNEL, processed ? new Date() : null],
+      );
+    }
+
+    await pruneEventSubEvents(7);
+
+    const { rows } = await query<{ message_id: string }>(
+      'SELECT message_id FROM eventsub_events WHERE message_id = ANY($1::text[])',
+      [[pending, done]],
+    );
+    // The pending one still owes the viewer a waypoint or a refund.
+    expect(rows.map((r) => r.message_id)).toEqual([pending]);
+  });
+});
