@@ -69,17 +69,18 @@ async function main() {
     await cp(from, to, { recursive: true });
   }
 
-  // mapbox-gl loads worker chunks and sprite/glyph assets at runtime; ship the
-  // whole assets folder rather than guessing which files it will ask for.
-  const assetsDir = join(dist, 'assets');
-  if (await exists(assetsDir)) {
-    for (const name of await readdir(assetsDir)) {
-      const to = join(stage, 'assets', name);
-      if (await exists(to)) continue;
-      await mkdir(dirname(to), { recursive: true });
-      await cp(join(assetsDir, name), to, { recursive: true });
-    }
-  }
+  // Only what viewer.html actually references ships. The dist folder also holds
+  // the admin console, the dev player and the OBS source, and none of those
+  // belong in a bundle Twitch serves to every viewer.
+  //
+  // The <script>, <link rel="modulepreload"> and <link rel="stylesheet"> tags
+  // Vite writes are the complete transitive set for this entry: the viewer uses
+  // no dynamic import(), so nothing else is fetched at runtime from our origin.
+  const shipped = [...refs].filter((ref) => ref.startsWith('assets/'));
+  const skipped = (await readdir(join(dist, 'assets')).catch(() => [])).filter(
+    (name) => !shipped.includes(`assets/${name}`),
+  );
+  console.log(`Bundled ${shipped.length} asset(s); left out ${skipped.length} from other surfaces.`);
 
   await rm(zipPath, { force: true });
 
