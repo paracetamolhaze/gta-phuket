@@ -347,3 +347,54 @@ ZIP. Сейчас это **не сделано** — намеренно, пот�
    redemption невозможно сопоставить со зрителем, сервер отдаёт `needs_id_share`.
 6. Заполнить allowlists (раздел 5).
 7. Для Local Test — HTTPS на dev-сервере (раздел 3).
+
+---
+
+## 10. Координаты репозитория
+
+```
+Repository: https://github.com/paracetamolhaze/gta-phuket
+Branch:     master
+Commit:     8b1570b
+```
+
+`8b1570b` — состояние, которое описано в этом файле. Финальный коммит с этим
+разделом идёт следом; на содержимое разделов 1–9 он не влияет.
+
+### Что показывать на ревью
+
+**Минимум — 8 файлов, покрывают весь денежный путь и CSP:**
+
+| Файл | Что в нём смотреть |
+| --- | --- |
+| `TWITCH_SETUP.md` | этот файл — конфигурация и известные дыры |
+| `server/src/twitch/eventsub.ts` | подпись вебхука, идемпотентность, транзакция активации, возвраты |
+| `server/src/domain/waypointFlow.ts` | расчёт → подтверждение → резерв слота |
+| `server/src/domain/slots.ts` | лизинг слотов, `FOR UPDATE SKIP LOCKED` |
+| `server/src/db/migrations/001_init.sql` | инварианты, которые держит база, а не код |
+| `server/src/twitch/extJwt.ts` | проверка JWT зрителя |
+| `web/src/viewer/twitch.ts` | мост к Extension Helper, dev-фолбэк |
+| `web/scripts/build-extension.mjs` | что именно уезжает в ZIP |
+
+**Полный набор — добавь к минимуму:**
+
+* контракт и документация: `docs/API.md`, `README.md`
+* состояние и цена: `server/src/domain/waypoints.ts`, `server/src/domain/quotes.ts`,
+  `server/src/domain/pricing.ts`, `server/src/domain/privacy.ts`
+* Twitch API: `server/src/twitch/helix.ts`, `server/src/twitch/tokens.ts`,
+  `server/src/twitch/oauth.ts`, `server/src/twitch/rewards.ts`
+* безопасность и конфиг: `server/src/env.ts`, `server/src/app.ts`,
+  `server/src/http/auth.ts`, `server/src/realtime/io.ts`
+* сборка расширения: `web/viewer.html`, `web/vite.config.ts`
+* миграция с ограничением «один живой расчёт на зрителя»:
+  `server/src/db/migrations/002_quote_per_viewer.sql`
+* тесты, если ревьюер захочет проверить утверждения:
+  `server/test/redemption.test.ts`, `server/test/hardening.test.ts`
+
+### Вопросы, которые стоит задать ревьюеру
+
+1. Подтверждает ли он, что blob-воркер Mapbox (раздел 8) действительно упадёт
+   под CSP расширений, и что переход на `mapbox-gl-csp` — правильное решение.
+2. Достаточно ли пула из 10 наград, или стоит считать нагрузку иначе.
+3. Не ломается ли схема возвратов, если Twitch отдаст `FULFILLED` раньше, чем
+   наш вебхук успеет отработать.
