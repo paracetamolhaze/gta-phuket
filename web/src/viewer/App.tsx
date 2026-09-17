@@ -91,7 +91,16 @@ interface Banner {
 
 // ---------------------------------------------------------------------------
 
-export default function App() {
+export interface AppProps {
+  /**
+   * Forces the mobile layout. `mobile.html` sets it, because Twitch only adds
+   * `?platform=mobile` inside its own app — opening that page in a desktop
+   * browser to check it would otherwise render the overlay layout.
+   */
+  forceMobile?: boolean;
+}
+
+export default function App({ forceMobile = false }: AppProps = {}) {
   const [auth, setAuth] = useState<ExtAuth | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [config, setConfig] = useState<ExtConfig | null>(null);
@@ -105,7 +114,7 @@ export default function App() {
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [narrow, setNarrow] = useState(() => (typeof window === 'undefined' ? false : window.innerWidth < 640));
 
-  const mobile = extParams.platform === 'mobile' || narrow;
+  const mobile = forceMobile || extParams.platform === 'mobile' || narrow;
 
   const api = useMemo(() => new ApiClient({ getToken: () => currentToken() }), []);
 

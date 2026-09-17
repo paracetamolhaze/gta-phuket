@@ -1,0 +1,123 @@
+/* Broadcaster Config surface. Framed by the Twitch dashboard, so it sizes to
+   whatever width it is given and never assumes a full window. */
+
+body.page-config {
+  background: var(--ink-0);
+}
+
+.cf {
+  min-height: 100%;
+  padding: 20px 16px 28px;
+  display: flex;
+  justify-content: center;
+}
+
+.cf-card {
+  width: 100%;
+  max-width: 720px;
+  padding: 22px;
+  align-self: flex-start;
+}
+
+.cf-head {
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+}
+
+.cf-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cf-titleAccent {
+  color: var(--accent);
+}
+
+.cf-lead {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  max-width: 62ch;
+}
+
+.cf-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.cf-row {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cf-rowHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cf-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-align: right;
+}
+
+/* The dot sits on the text baseline rather than its own line box. */
+.cf-value .dot {
+  transform: translateY(-1px);
+}
+
+.cf-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  max-width: 62ch;
+}
+
+.cf-foot {
+  padding-top: 18px;
+}
+
+.cf-link {
+  display: inline-flex;
+  margin: 10px 0 12px;
+}
+
+.cf-url {
+  display: block;
+  padding: 9px 12px;
+  border-radius: var(--radius-s);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--hairline);
+  font-size: 12px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+@media (max-width: 520px) {
+  .cf {
+    padding: 14px 12px 20px;
+  }
+  .cf-card {
+    padding: 16px;
+  }
+  .cf-rowHead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .cf-value {
+    text-align: left;
+  }
+}

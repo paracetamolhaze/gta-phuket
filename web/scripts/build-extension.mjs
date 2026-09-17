@@ -5,18 +5,25 @@
  *   npm run ext:zip -w web
  *
  * Twitch hosts extension front-end files itself: you upload a zip whose ROOT
- * contains the HTML entry points. Only the viewer surface belongs in it — the
- * admin console, the OBS source and the streamer PWA stay on your own server.
+ * contains the HTML entry points. Only the three Twitch surfaces belong in it —
+ * the admin console, the OBS source and the streamer PWA stay on your own
+ * server and must never be handed to viewers.
  *
- * The bundle must call your backend cross-origin, so build it with
- * VITE_API_BASE pointing at the public HTTPS URL of the API, e.g.
+ * The file list comes from Vite's build manifest rather than from scraping the
+ * HTML, because some files are referenced from JavaScript and never appear in a
+ * tag: the Mapbox CSP worker is loaded through
+ * `new URL('mapbox-gl-csp-worker-*.js', import.meta.url)`, and leaving it out
+ * would produce a zip that looks complete and shows a blank map.
+ *
+ * Build it with the public API base compiled in, or the hosted bundle will call
+ * its own Twitch-hosted origin:
  *
  *   VITE_API_BASE=https://api.example.com \
  *   VITE_MAPBOX_PUBLIC_TOKEN=pk.xxx \
  *   npm run build -w web && npm run ext:zip -w web
  */
 import { createWriteStream } from 'node:fs';
-import { mkdir, readdir, readFile, rm, stat, writeFile, cp } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile, cp } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -25,6 +32,9 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(webRoot, 'dist');
 const stage = join(webRoot, 'extension-build');
 const zipPath = join(webRoot, 'twitch-extension.zip');
+
+/** The pages Twitch is configured to serve. Keep in sync with the console. */
+const ENTRIES = ['video_overlay.html', 'mobile.html', 'config.html'];
 
 async function exists(p) {
   try {
@@ -35,52 +45,74 @@ async function exists(p) {
   }
 }
 
-/** Assets referenced by viewer.html, walked transitively through the manifest. */
-async function collectAssets(html) {
-  const refs = new Set();
-  for (const match of html.matchAll(/(?:src|href)="\/([^"]+)"/g)) {
-    if (match[1]) refs.add(match[1]);
-  }
-  return refs;
+/**
+ * Walk one manifest entry and everything it imports, collecting every file the
+ * browser will end up asking for.
+ */
+function collect(manifest, key, seen = new Set(), out = new Set()) {
+  if (seen.has(key)) return out;
+  seen.add(key);
+
+  const entry = manifest[key];
+  if (!entry) return out;
+
+  if (entry.file) out.add(entry.file);
+  for (const css of entry.css ?? []) out.add(css);
+  for (const asset of entry.assets ?? []) out.add(asset);
+  for (const imported of entry.imports ?? []) collect(manifest, imported, seen, out);
+  // Dynamic imports would be fetched later, at runtime, so they ship too.
+  for (const imported of entry.dynamicImports ?? []) collect(manifest, imported, seen, out);
+
+  return out;
 }
 
 async function main() {
-  if (!(await exists(join(dist, 'viewer.html')))) {
-    console.error('dist/viewer.html is missing. Run `npm run build -w web` first.');
+  const manifestPath = join(dist, '.vite', 'manifest.json');
+  if (!(await exists(manifestPath))) {
+    console.error('dist/.vite/manifest.json is missing. Run `npm run build -w web` first.');
     process.exit(1);
+  }
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+
+  for (const entry of ENTRIES) {
+    if (!manifest[entry]) {
+      console.error(`${entry} is not in the build manifest. Is it still a Vite input?`);
+      process.exit(1);
+    }
   }
 
   await rm(stage, { recursive: true, force: true });
   await mkdir(stage, { recursive: true });
 
-  const html = await readFile(join(dist, 'viewer.html'), 'utf8');
+  const files = new Set();
+  for (const entry of ENTRIES) collect(manifest, entry, new Set(), files);
 
-  // Twitch serves the zip contents from the archive root, so viewer.html must
-  // reference its assets relatively, not from "/".
-  const rewritten = html.replace(/(src|href)="\//g, '$1="');
-  await writeFile(join(stage, 'viewer.html'), rewritten, 'utf8');
-
-  const refs = await collectAssets(html);
-  for (const ref of refs) {
-    const from = join(dist, ref);
-    if (!(await exists(from))) continue;
-    const to = join(stage, ref);
+  for (const file of files) {
+    const from = join(dist, file);
+    if (!(await exists(from))) {
+      console.error(`manifest lists ${file} but it is not in dist/`);
+      process.exit(1);
+    }
+    const to = join(stage, file);
     await mkdir(dirname(to), { recursive: true });
-    await cp(from, to, { recursive: true });
+    await cp(from, to);
   }
 
-  // Only what viewer.html actually references ships. The dist folder also holds
-  // the admin console, the dev player and the OBS source, and none of those
-  // belong in a bundle Twitch serves to every viewer.
-  //
-  // The <script>, <link rel="modulepreload"> and <link rel="stylesheet"> tags
-  // Vite writes are the complete transitive set for this entry: the viewer uses
-  // no dynamic import(), so nothing else is fetched at runtime from our origin.
-  const shipped = [...refs].filter((ref) => ref.startsWith('assets/'));
-  const skipped = (await readdir(join(dist, 'assets')).catch(() => [])).filter(
-    (name) => !shipped.includes(`assets/${name}`),
-  );
-  console.log(`Bundled ${shipped.length} asset(s); left out ${skipped.length} from other surfaces.`);
+  // The HTML itself is not listed as its own output file in the manifest.
+  // Vite already emits relative asset URLs because of `base: './'`, so the
+  // markup is copied as-is; that is what lets the same zip work on
+  // https://localhost:8080/ and on Twitch's hashed CDN path.
+  for (const entry of ENTRIES) {
+    const html = await readFile(join(dist, entry), 'utf8');
+    if (/(?:src|href)="\//.test(html)) {
+      console.error(
+        `${entry} contains absolute asset URLs. Twitch serves the zip from a ` +
+          'sub-path, so the build must keep base: "./".',
+      );
+      process.exit(1);
+    }
+    await writeFile(join(stage, entry), html, 'utf8');
+  }
 
   await rm(zipPath, { force: true });
 
@@ -102,15 +134,20 @@ async function main() {
   } catch (err) {
     console.error(
       `\nCould not create the zip automatically (${err.message}).\n` +
-        `Zip the CONTENTS of ${stage} yourself — viewer.html must sit at the archive root.\n`,
+        `Zip the CONTENTS of ${stage} yourself — the HTML files must sit at the archive root.\n`,
     );
     process.exit(1);
   }
 
   const size = (await stat(zipPath)).size;
-  console.log(`\nTwitch extension bundle: ${relative(process.cwd(), zipPath)} (${(size / 1024 / 1024).toFixed(2)} MB)`);
-  console.log('Upload it under Extension -> Files -> Asset Hosting.');
-  console.log('Set the Video Overlay path to "viewer.html" (and the Mobile path too, if enabled).');
+  console.log(
+    `\nTwitch extension bundle: ${relative(process.cwd(), zipPath)} ` +
+      `(${(size / 1024 / 1024).toFixed(2)} MB, ${files.size + ENTRIES.length} files)`,
+  );
+  console.log('  Video - Fullscreen Path : video_overlay.html');
+  console.log('  Mobile Path             : mobile.html');
+  console.log('  Config Path             : config.html');
+
   if (!process.env.VITE_API_BASE) {
     console.warn(
       '\nWARNING: VITE_API_BASE was not set at build time.\n' +

@@ -3,13 +3,20 @@
   "private": true,
   "version": "1.0.0",
   "description": "IRL Twitch waypoint system for Phuket: video-overlay extension, real map, walking routes, Channel Points redemptions, OBS HUD",
-  "workspaces": ["server", "web"],
-  "engines": { "node": ">=20" },
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "npm run build -w server && npm run build -w web",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
     "test": "npm run test -w server",
     "migrate": "npm run migrate -w server",
-    "ext:zip": "npm run ext:zip -w web"
+    "ext:zip": "npm run ext:zip -w web",
+    "ext:build": "npm run ext:build -w web",
+    "ext:check": "npm run ext:check -w web"
   }
 }

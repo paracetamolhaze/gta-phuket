@@ -1,0 +1,86 @@
+/* Twitch Mobile surface.
+   Overrides on top of viewer.css for the one case the overlay layout cannot
+   serve: a phone, where the extension gets its own rectangle instead of a
+   transparent layer over video, and every target is touched, not clicked. */
+
+body.page-mobile {
+  /* Not transparent, unlike the video overlay: on mobile Twitch gives the
+     extension its own surface, and a see-through one would show nothing. */
+  background: var(--ink-0);
+  overscroll-behavior: none;
+}
+
+body.page-mobile #root {
+  height: 100%;
+}
+
+/* The whole surface is ours, so nothing needs to pass clicks through to a
+   player underneath. */
+.page-mobile .viewer {
+  pointer-events: auto;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Full-bleed map: the inset that keeps the desktop overlay clear of the Twitch
+   player controls has no meaning here. */
+.page-mobile .viewer[data-mobile='true'] .overlay {
+  inset: 0;
+  border-radius: 0;
+}
+
+/* Idle state: a solid bar pinned to the bottom, thumb-height. */
+.page-mobile .mobileBar {
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  min-height: 64px;
+  padding: 10px 12px 10px 16px;
+}
+
+.page-mobile .mobileBtn {
+  min-height: 48px;
+  min-width: 112px;
+  font-size: 15px;
+}
+
+/* Bigger type and targets throughout the expanded map. */
+.page-mobile .viewer[data-mobile='true'] .searchInput {
+  min-height: 52px;
+  font-size: 16px; /* under 16px iOS Safari zooms the whole page on focus */
+}
+
+.page-mobile .viewer[data-mobile='true'] .iconBtn {
+  min-width: 52px;
+  min-height: 52px;
+}
+
+.page-mobile .viewer[data-mobile='true'] .btn {
+  min-height: 54px;
+}
+
+.page-mobile .viewer[data-mobile='true'] .card {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* Search results are the main scroll surface on a phone; give them room and
+   momentum, and keep each row a comfortable target. */
+.page-mobile .searchPanel {
+  max-height: 46vh;
+  -webkit-overflow-scrolling: touch;
+}
+
+.page-mobile .searchRow {
+  min-height: 60px;
+}
+
+/* A phone in landscape has almost no vertical room: drop the sheet to a strip. */
+@media (orientation: landscape) and (max-height: 460px) {
+  .page-mobile .searchPanel {
+    max-height: 32vh;
+  }
+  .page-mobile .viewer[data-mobile='true'] .card {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+}

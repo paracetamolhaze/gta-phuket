@@ -1,7 +1,7 @@
 /**
  * Thin typed wrapper around the Twitch extension helper.
  *
- * The helper is loaded by viewer.html from extension-files.twitch.tv and only
+ * The helper is loaded by each Twitch HTML entry from extension-files.twitch.tv
  * exists when we really run inside a Twitch iframe. Everything below always
  * checks `window.Twitch?.ext` first; the dev fallback (local /dev player
  * simulator) is used only when that object is absent.
@@ -133,7 +133,7 @@ export function hasTwitchHelper(): boolean {
 /**
  * True while we are standing in for Twitch rather than running inside it.
  *
- * viewer.html loads the Twitch helper script unconditionally, so its mere
+ * Every Twitch entry loads the helper script unconditionally, so its mere
  * presence proves nothing: opened directly, or embedded in the local /dev
  * player, it defines `window.Twitch.ext` and then never authorises anybody,
  * leaving the page stuck forever.
@@ -141,7 +141,7 @@ export function hasTwitchHelper(): boolean {
  * Two signals, both of which a real Twitch embed fails:
  *   - `?devUser=` in the query string. Twitch never adds it, and a production
  *     bundle is built with VITE_DEV_MODE=false, so it cannot fire in the wild.
- *   - no helper at all (viewer.html opened as a plain page).
+ *   - no helper at all (the page opened as a plain document).
  */
 export function isDevFallback(): boolean {
   if (DEV_MODE_FLAG && extParams.devUser) return true;
@@ -186,8 +186,21 @@ function claimString(claims: Record<string, unknown> | null, key: string): strin
 
 const devApi = new ApiClient();
 
-async function mintDevToken(userId: string): Promise<ExtAuth> {
-  const res = await devApi.post<DevTokenResponse>('/api/dev/ext-token', { userId, linked: true });
+/** Role the dev fallback mints with; set once by start(). Ignored on real Twitch. */
+let devRole: DevRole = 'viewer';
+
+export type DevRole = 'viewer' | 'broadcaster';
+
+/**
+ * `role` matters for config.html: the broadcaster status endpoint refuses
+ * anything but a broadcaster token, exactly as it will on real Twitch.
+ */
+async function mintDevToken(userId: string, role: DevRole = 'viewer'): Promise<ExtAuth> {
+  const res = await devApi.post<DevTokenResponse>('/api/dev/ext-token', {
+    userId,
+    linked: true,
+    role,
+  });
   const token = res.token ?? res.jwt;
   if (!token) throw new Error('Dev token endpoint returned no token');
   const claims = decodeJwtPayload(token);
@@ -204,10 +217,16 @@ async function mintDevToken(userId: string): Promise<ExtAuth> {
 // Installation
 // ---------------------------------------------------------------------------
 
-/** Idempotent. Wires the real helper, or falls back to the dev token endpoint. */
-export function start(): void {
+/**
+ * Idempotent. Wires the real helper, or falls back to the dev token endpoint.
+ *
+ * `devRole` only affects the fallback; inside real Twitch the role comes from
+ * the JWT Twitch signs, and nothing here can influence it.
+ */
+export function start(role: DevRole = 'viewer'): void {
   if (installed) return;
   installed = true;
+  devRole = role;
 
   const ext =
     typeof window === 'undefined' || isDevFallback() ? undefined : window.Twitch?.ext;
@@ -231,7 +250,7 @@ export function start(): void {
     if (DEV_MODE_FLAG) {
       window.setTimeout(() => {
         if (latestAuth) return;
-        void mintDevToken(extParams.devUser)
+        void mintDevToken(extParams.devUser, devRole)
           .then((auth) => emitAuth(auth))
           .catch((err: unknown) => emitError(err));
       }, 3000);
@@ -240,7 +259,7 @@ export function start(): void {
   }
 
   // No helper on the page: local dev / player simulator.
-  void mintDevToken(extParams.devUser)
+  void mintDevToken(extParams.devUser, devRole)
     .then((auth) => emitAuth(auth))
     .catch((err: unknown) => emitError(err));
 
@@ -320,7 +339,7 @@ export function requestIdShare(): void {
   }
   if (isDevFallback()) {
     // Dev simulator: re-mint a linked token so the flow can be exercised.
-    void mintDevToken(extParams.devUser)
+    void mintDevToken(extParams.devUser, devRole)
       .then((auth) => emitAuth(auth))
       .catch((err: unknown) => emitError(err));
   }

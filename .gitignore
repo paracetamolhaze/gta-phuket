@@ -7,3 +7,13 @@ coverage/
 .DS_Store
 extension-build/
 *.zip
+
+# Local HTTPS for Twitch Local Test. The private key must never be committed;
+# regenerate with scripts/setup-certs.ps1 (Windows) or scripts/setup-certs.sh.
+certs/*
+!certs/README.md
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx

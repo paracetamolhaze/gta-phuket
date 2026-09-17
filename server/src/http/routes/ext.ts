@@ -4,7 +4,11 @@ import { env } from '../../env.js';
 import { PHUKET } from '../../domain/geo.js';
 import { getSettings } from '../../domain/settings.js';
 import { getQuote, toQuoteView } from '../../domain/quotes.js';
-import { getPublicGps } from '../../domain/gps.js';
+import { getGpsState, getPublicGps } from '../../domain/gps.js';
+import { countFreeSlots } from '../../domain/slots.js';
+import { loadBroadcasterTokens } from '../../twitch/tokens.js';
+import { listEventSubSubscriptions } from '../../twitch/helix.js';
+import { useDevHelix } from '../../twitch/devHelix.js';
 import { searchPlaces } from '../../maps/mapbox.js';
 import {
   buildViewerState,
@@ -119,5 +123,56 @@ export async function registerExtRoutes(app: FastifyInstance): Promise<void> {
 
     await cancelViewerQuote(identity.channelId, userId, id);
     return { ok: true };
+  });
+
+  /**
+   * Status for the Twitch broadcaster Config surface (`config.html`).
+   *
+   * Deliberately booleans and counters only. The broadcaster is trusted, but
+   * this response travels to a page Twitch frames, so it carries no token, no
+   * secret, no OAuth material and no coordinates — just enough to answer "is
+   * the thing wired up", with the real controls living in /admin.
+   */
+  app.get('/api/ext/broadcaster/status', async (req) => {
+    const identity = requireExtIdentity(req);
+    if (identity.role !== 'broadcaster') {
+      throw new AppError('forbidden', 'Эта страница только для владельца канала', 403);
+    }
+
+    const channelId = identity.channelId;
+    const settings = await getSettings(channelId);
+    const [gps, counts, tokens] = await Promise.all([
+      getGpsState(channelId, settings),
+      countFreeSlots(channelId, settings.rewardSlotPoolSize),
+      loadBroadcasterTokens(channelId),
+    ]);
+
+    let eventsubCount = 0;
+    if (tokens || useDevHelix()) {
+      try {
+        eventsubCount = (await listEventSubSubscriptions()).filter(
+          (s) => s.condition.broadcaster_user_id === channelId,
+        ).length;
+      } catch {
+        eventsubCount = -1; // "could not ask Twitch", distinct from "none"
+      }
+    }
+
+    return {
+      channelId,
+      serverTime: Date.now(),
+      backend: { ok: true, devMode: env.devModeEnabled },
+      twitch: {
+        connected: Boolean(tokens),
+        usingLocalStub: useDevHelix(),
+        scopes: tokens?.scopes ?? [],
+        eventsubCount,
+      },
+      gps: { status: gps.status, ageMs: gps.ageMs, accuracy: gps.sample?.accuracy ?? null },
+      mapboxConfigured: Boolean(env.MAPBOX_SERVER_TOKEN || env.MAPBOX_PUBLIC_TOKEN),
+      waypointsOpen: settings.waypointsOpen,
+      slots: counts,
+      adminUrl: `${env.PUBLIC_WEB_URL.replace(/\/$/, '')}/admin.html`,
+    };
   });
 }

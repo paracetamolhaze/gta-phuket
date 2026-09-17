@@ -37,7 +37,9 @@ const QUICK_LINKS: readonly { href: string; note: string }[] = [
   { href: '/streamer.html', note: 'Телефон стримера — отдаёт GPS' },
   { href: '/obs.html', note: 'Оверлей для OBS, 1920×1080' },
   { href: '/admin.html', note: 'Пульт: настройки, слоты, отмена' },
-  { href: '/viewer.html', note: 'Расширение отдельной вкладкой' },
+  { href: '/video_overlay.html', note: 'Video overlay отдельной вкладкой' },
+  { href: '/mobile.html', note: 'Мобильная поверхность' },
+  { href: '/config.html', note: 'Config для владельца канала' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -497,7 +499,7 @@ export default function App(): JSX.Element {
     pushLog('sys', 'viewer:reload', `devUser ${next}`);
   }, [devUser, pushLog]);
 
-  const viewerSrc = `/viewer.html?devUser=${encodeURIComponent(viewerUser)}&platform=web`;
+  const viewerSrc = `/video_overlay.html?devUser=${encodeURIComponent(viewerUser)}&platform=web`;
 
   return (
     <div className="dev-shell">

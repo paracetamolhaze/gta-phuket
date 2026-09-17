@@ -38,7 +38,12 @@ services:
       HOST: 0.0.0.0
       DATABASE_URL: postgres://gta:gta@postgres:5432/gta_phuket
       REDIS_URL: redis://redis:6379
-      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:5173}
+      # Both default to the HTTPS dev origin: the web container proxies /api and
+      # /socket.io, so the extension, the OAuth callback and the EventSub
+      # callback all live behind one trusted origin. Override in .env when a
+      # tunnel is in front.
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-https://localhost:8080}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-https://localhost:8080}
     ports:
       - '4000:4000'
     depends_on:
@@ -56,6 +61,10 @@ services:
       timeout: 5s
       retries: 20
 
+  # Serves every browser surface, including the three Twitch extension pages,
+  # over HTTPS on 8080 — the origin Twitch Local Test is pointed at. Certificates
+  # come from scripts/setup-certs.*; without them it falls back to plain HTTP and
+  # says so in the logs.
   web:
     build:
       context: .
@@ -63,27 +72,33 @@ services:
     env_file:
       - .env
     environment:
+      WEB_PORT: 8080
       VITE_PROXY_TARGET: http://api:4000
       VITE_MAPBOX_PUBLIC_TOKEN: ${MAPBOX_PUBLIC_TOKEN}
       VITE_MAPBOX_STYLE_URL: ${MAPBOX_STYLE_URL:-mapbox://styles/mapbox/dark-v11}
       VITE_DEV_MODE: ${DEV_MODE:-false}
-      VITE_TWITCH_CHANNEL_ID: ${TWITCH_CHANNEL_ID}
+      VITE_API_BASE: ${VITE_API_BASE:-}
     ports:
-      - '5173:5173'
+      - '8080:8080'
     depends_on:
       - api
     volumes:
       - ./web/src:/app/web/src:ro
       - ./web/public:/app/web/public:ro
+      - ./web/scripts:/app/web/scripts:ro
       - ./web/vite.config.ts:/app/web/vite.config.ts:ro
       - ./web/tsconfig.json:/app/web/tsconfig.json:ro
       - ./web/index.html:/app/web/index.html:ro
-      - ./web/viewer.html:/app/web/viewer.html:ro
+      - ./web/video_overlay.html:/app/web/video_overlay.html:ro
+      - ./web/mobile.html:/app/web/mobile.html:ro
+      - ./web/config.html:/app/web/config.html:ro
       - ./web/streamer.html:/app/web/streamer.html:ro
       - ./web/obs.html:/app/web/obs.html:ro
       - ./web/admin.html:/app/web/admin.html:ro
       - ./web/dev.html:/app/web/dev.html:ro
       - ./.env:/app/.env:ro
+      # Read-only: the container only ever reads the key, never writes one.
+      - ./certs:/app/certs:ro
 
   # docker compose --profile test run --rm test
   test:
@@ -107,6 +122,34 @@ services:
       - ./server/src:/app/server/src:ro
       - ./server/test:/app/server/test:ro
     command: ['npm', 'run', 'test', '-w', 'server']
+
+  # Opt-in public HTTPS tunnel for REAL TWITCH TEST:
+  #
+  #   docker compose --profile tunnel up -d cloudflared
+  #   docker compose logs cloudflared | grep trycloudflare.com
+  #
+  # Twitch's servers cannot reach localhost, so EventSub needs a public URL.
+  # Everything still runs here — the tunnel only forwards HTTPS to the local api
+  # container. Nothing is deployed anywhere.
+  #
+  # Put the printed URL into PUBLIC_API_URL (and VITE_API_BASE), recreate api and
+  # web, then press "СИНХР. EVENTSUB" in /admin so Twitch re-subscribes to the
+  # new callback.
+  cloudflared:
+    profiles: ['tunnel']
+    image: cloudflare/cloudflared:latest
+    # A quick tunnel needs no Cloudflare account and prints a random
+    # https://<name>.trycloudflare.com URL. Set CLOUDFLARE_TUNNEL_TOKEN in .env
+    # to use a named tunnel with a stable hostname instead.
+    command: >
+      sh -c 'if [ -n "$${CLOUDFLARE_TUNNEL_TOKEN}" ];
+             then exec cloudflared tunnel --no-autoupdate run --token "$${CLOUDFLARE_TUNNEL_TOKEN}";
+             else exec cloudflared tunnel --no-autoupdate --url http://api:4000; fi'
+    environment:
+      CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - api
+    restart: unless-stopped
 
 volumes:
   pgdata:

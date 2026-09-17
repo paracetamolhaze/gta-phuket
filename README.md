@@ -41,12 +41,17 @@ Twitch Extension → карта Пхукета → точка → walking route 
 
 | Поверхность | URL | Для кого |
 | --- | --- | --- |
-| Twitch Extension (video overlay) | `viewer.html` | зрители, поверх плеера |
+| Twitch Video - Fullscreen | `/video_overlay.html` | зрители, поверх плеера |
+| Twitch Mobile | `/mobile.html` | зрители с телефона |
+| Twitch Config | `/config.html` | владелец канала, статус связки |
 | OBS Browser Source | `/obs.html` | вшивается в видео |
 | Телефон стримера (PWA) | `/streamer.html` | ты на улице |
 | Live-админка | `/admin.html` | ты или модератор |
 | Симулятор Twitch-плеера | `/dev.html` | только локально, DEV_MODE |
-| API | `:4000/api/*` | всё вышеперечисленное |
+| API | `/api/*` | всё вышеперечисленное |
+
+Всё это раздаётся одним контейнером по HTTPS на `https://localhost:8080/`.
+Настройка Twitch-расширения — в [TWITCH_SETUP.md](TWITCH_SETUP.md).
 
 Стек: Node 20 + TypeScript + Fastify + Socket.IO + PostgreSQL + Redis,
 фронтенд — React 18 + Vite + Mapbox GL JS v3.
@@ -112,6 +117,13 @@ DEV_MODE=true
 Twitch-ключи для локального теста **не нужны** — см.
 [Локальный тест](#локальный-тест-без-стрима-и-без-баллов).
 
+Один раз выпусти локальный сертификат (нужен `mkcert`, ставится через
+`winget install FiloSottile.mkcert`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-certs.ps1
+```
+
 ```bash
 docker compose up -d --build
 ```
@@ -120,10 +132,15 @@ docker compose up -d --build
 
 | Сервис | Порт | Проверка |
 | --- | --- | --- |
-| web (Vite) | 5173 | http://localhost:5173 |
-| api | 4000 | http://localhost:4000/api/health |
+| web (Vite, HTTPS) | 8080 | https://localhost:8080 |
+| api | 4000 | https://localhost:8080/api/health |
 | postgres | 55432 | — |
 | redis | 63790 | — |
+
+Контейнер `web` терминирует TLS сам и проксирует `/api` и `/socket.io` на `api`,
+поэтому расширение, REST и `wss://` живут на одном доверенном origin. Без
+сертификата HTTPS всё равно поднимется — с временным самоподписанным, о чём
+будет сказано в логах; Twitch Local Test в таком виде работать не будет.
 
 Миграции применяются автоматически при старте `api`.
 
@@ -215,9 +232,10 @@ curl -H "Client-Id: $TWITCH_CLIENT_ID" -H "Authorization: Bearer $APP_TOKEN" \
 
 | Поле | Значение |
 | --- | --- |
-| Video - Fullscreen Path | `viewer.html` |
-| Video - Component Path | `viewer.html` (если включаешь компонент) |
-| Mobile Path | `viewer.html` (опционально) |
+| Video - Fullscreen Path | `video_overlay.html` |
+| Mobile Path | `mobile.html` |
+| Config Path | `config.html` |
+| Live Config Path | *(пусто)* |
 | Testing Base URI | `https://localhost:8080/` для local test |
 
 В `Capabilities`:
@@ -324,7 +342,7 @@ URL берётся из админки (поле **OBS Browser Source**) или 
 старте — он содержит токен:
 
 ```
-http://localhost:5173/obs.html?token=<32 hex>
+https://localhost:8080/obs.html?token=<32 hex>
 ```
 
 Токен выводит мини-карту на **точные** координаты. Без него страница всё равно
@@ -333,7 +351,7 @@ http://localhost:5173/obs.html?token=<32 hex>
 
 | Поле | Значение |
 | --- | --- |
-| URL | `http://localhost:5173/obs.html?token=…` |
+| URL | `https://localhost:8080/obs.html?token=…` |
 | Width | `1920` |
 | Height | `1080` |
 | Custom CSS | оставить пустым |
@@ -343,7 +361,7 @@ http://localhost:5173/obs.html?token=<32 hex>
 Фон прозрачный, мини-карта в левом нижнем углу. Растяни источник на весь
 холст — HUD сам масштабируется.
 
-Для выравнивания есть отладочный режим: `http://localhost:5173/obs.html?debug=1`
+Для выравнивания есть отладочный режим: `https://localhost:8080/obs.html?debug=1`
 — он рисует границы safe zone и прямоугольник мини-карты.
 
 **Геометрия мини-карты — это контракт.** Она занимает
@@ -374,7 +392,7 @@ http://localhost:5173/obs.html?token=<32 hex>
 
 ## Админка
 
-`http://localhost:5173/admin.html`, пароль — `ADMIN_SESSION_SECRET`.
+`https://localhost:8080/admin.html`, пароль — `ADMIN_SESSION_SECRET`.
 
 Показывает: статус и точность GPS, активный waypoint (кто заплатил, сколько,
 сколько осталось идти), состояние всех слотов наград, последние расчёты,
@@ -396,9 +414,9 @@ GPS, задержка и точность координат для зрител
 подменяется локальной заглушкой — **никаких реальных наград и никаких реальных
 баллов.** Маршруты и карта при этом настоящие, Mapbox-токен нужен всегда.
 
-Открой **http://localhost:5173/dev.html** — это симулятор Twitch-плеера:
+Открой **https://localhost:8080/dev.html** — это симулятор Twitch-плеера:
 поддельное «видео», поверх него настоящий `obs.html` в iframe (как вшитая в
-видео мини-карта), а сверху настоящий `viewer.html` (как расширение).
+видео мини-карта), а сверху настоящий `video_overlay.html` (как расширение).
 
 Полный сценарий:
 

@@ -27,6 +27,14 @@ Anything the client sends about identity is ignored.
 | `POST` | `/api/ext/quote/:id/confirm` | – | `QuoteView` (status `AWAITING_REDEMPTION`, `rewardTitle` set) |
 | `POST` | `/api/ext/quote/:id/cancel` | – | `{ ok: true }` |
 | `GET` | `/api/ext/quote/:id` | – | `QuoteView` |
+| `GET` | `/api/ext/broadcaster/status` | – | broadcaster-only status (see below) |
+
+`GET /api/ext/broadcaster/status` backs `config.html`, the Twitch Config
+surface. It requires `role === 'broadcaster'` in the JWT and answers `403`
+for anyone else. It returns booleans and counters only — backend reachability,
+whether Twitch OAuth is connected, the channel id, GPS status and age, whether
+Mapbox is configured, whether waypoints are open, free/total reward slots and
+the admin URL. No token, no secret and no coordinates leave through it.
 
 `POST /api/ext/quote` rejects with, in this order:
 

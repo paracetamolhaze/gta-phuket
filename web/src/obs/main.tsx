@@ -3,6 +3,9 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import '../shared/theme.css';
 import './obs.css';
 import { App } from './App';
+import { installMapboxCspWorker } from '../shared/mapbox';
+
+installMapboxCspWorker();
 
 /**
  * OBS Browser Source entry.
