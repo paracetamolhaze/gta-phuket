@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -81,6 +81,42 @@ function entryPoints(): Record<string, string> {
   return entries;
 }
 
+const TWITCH_HELPER_SRC = 'https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js';
+const TWITCH_HELPER_TAG = `<script src="${TWITCH_HELPER_SRC}"></script>`;
+const TWITCH_ENTRIES = new Set(['video_overlay.html', 'mobile.html', 'config.html']);
+
+/**
+ * Twitch's helper has to be the first script on a Twitch page: it answers the
+ * supervisor's handshake, and Twitch reports "Extension Helper Library Not
+ * Loaded" when anything runs ahead of it.
+ *
+ * The HTML files already put it first, but Vite adds its own scripts on top —
+ * in dev it prepends /@vite/client and the React refresh preamble to <head>, in
+ * a build it hoists the entry module into <head>. This runs last, after all of
+ * that, and moves the helper back to the very top of <head>, as the classic
+ * script it was written as. A Twitch entry without the helper fails the build.
+ */
+function twitchHelperFirst(): Plugin {
+  return {
+    name: 'gta-phuket:twitch-helper-first',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html, ctx) {
+        const page = ctx.filename.replace(/\\/g, '/').split('/').pop() ?? '';
+        if (!TWITCH_ENTRIES.has(page)) return html;
+        if (!html.includes(TWITCH_HELPER_TAG)) {
+          throw new Error(`${page}: the Twitch helper script tag is missing`);
+        }
+        // Straight after <head>, ahead of everything Vite prepended there. The
+        // charset <meta> stays well inside the first 1024 bytes, which is all
+        // the HTML spec asks of it.
+        const without = html.split(TWITCH_HELPER_TAG).join('').replace(/\n[ \t]*\n/g, '\n');
+        return without.replace(/<head[^>]*>/i, (head) => `${head}\n    ${TWITCH_HELPER_TAG}`);
+      },
+    },
+  };
+}
+
 export default defineConfig(({ mode, command }) => ({
   // Twitch serves an uploaded extension from a hashed path, not from the domain
   // root, so every asset reference in the bundle has to be relative. In dev the
@@ -89,7 +125,7 @@ export default defineConfig(({ mode, command }) => ({
   root: __dirname,
   // The single .env lives at the repo root, next to docker-compose.yml.
   envDir: resolve(__dirname, '..'),
-  plugins: [react()],
+  plugins: [react(), twitchHelperFirst()],
   resolve: {
     alias: [
       {

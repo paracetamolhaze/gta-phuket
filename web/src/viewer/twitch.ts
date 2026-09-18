@@ -1,10 +1,11 @@
 /**
  * Thin typed wrapper around the Twitch extension helper.
  *
- * The helper is loaded by each Twitch HTML entry from extension-files.twitch.tv
- * exists when we really run inside a Twitch iframe. Everything below always
- * checks `window.Twitch?.ext` first; the dev fallback (local /dev player
- * simulator) is used only when that object is absent.
+ * Each Twitch HTML entry loads the helper from extension-files.twitch.tv as its
+ * first script, before this bundle. Inside a Twitch iframe `window.Twitch.ext`
+ * is therefore always the real thing and is always used. The dev fallback (the
+ * local /dev player simulator) takes over only when the helper is absent, or in
+ * a DEV_MODE build that was explicitly asked for it — see isDevFallback().
  */
 
 import { ApiClient } from '../shared/api';
@@ -59,6 +60,8 @@ interface TwitchExtApi {
   onHighlightChanged?: (cb: (isHighlighted: boolean) => void) => void;
   actions?: TwitchExtActions;
   viewer?: TwitchExtViewer;
+  /** Helper build, e.g. "1.28.0". */
+  version?: string;
 }
 
 declare global {
@@ -81,12 +84,23 @@ export interface ExtParams {
   mode: string | null;
   /** Dev simulator only: which fake viewer id to mint a token for. */
   devUser: string;
+  /**
+   * `?devUser=` was actually in the URL. Only the local /dev player adds it;
+   * Twitch never does. The default above is just the id minted when it is not.
+   */
+  devUserExplicit: boolean;
 }
 
 const DEFAULT_DEV_USER = '100000001';
 
 function readParams(): ExtParams {
-  const empty: ExtParams = { platform: 'web', anchor: null, mode: null, devUser: DEFAULT_DEV_USER };
+  const empty: ExtParams = {
+    platform: 'web',
+    anchor: null,
+    mode: null,
+    devUser: DEFAULT_DEV_USER,
+    devUserExplicit: false,
+  };
   if (typeof window === 'undefined') return empty;
   const q = new URLSearchParams(window.location.search);
   const rawPlatform = (q.get('platform') ?? '').toLowerCase();
@@ -95,7 +109,8 @@ function readParams(): ExtParams {
     platform,
     anchor: q.get('anchor'),
     mode: q.get('mode'),
-    devUser: q.get('devUser') ?? DEFAULT_DEV_USER,
+    devUser: q.get('devUser') || DEFAULT_DEV_USER,
+    devUserExplicit: q.has('devUser'),
   };
 }
 
@@ -141,22 +156,35 @@ export function hasTwitchHelper(): boolean {
   return typeof window !== 'undefined' && !!window.Twitch?.ext;
 }
 
+function isFramed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    // Reading `top` across origins can throw in old engines: that is a frame.
+    return true;
+  }
+}
+
 /**
  * True while we are standing in for Twitch rather than running inside it.
  *
- * Every Twitch entry loads the helper script unconditionally, so its mere
- * presence proves nothing: opened directly, or embedded in the local /dev
- * player, it defines `window.Twitch.ext` and then never authorises anybody,
- * leaving the page stuck forever.
+ * Every Twitch entry loads the helper unconditionally, so its presence alone
+ * proves nothing: opened directly, or embedded in the local /dev player, it
+ * defines `window.Twitch.ext` and then never authorises anybody.
  *
- * Two signals, both of which a real Twitch embed fails:
- *   - `?devUser=` in the query string. Twitch never adds it, and a production
- *     bundle is built with VITE_DEV_MODE=false, so it cannot fire in the wild.
- *   - no helper at all (the page opened as a plain document).
+ * A real Twitch embed is a frame, with the helper, without `?devUser=`. That
+ * combination always gets the real helper — whatever the build flags say, so a
+ * DEV_MODE diagnostics build still talks to Twitch properly. The fallback is
+ * used only when:
+ *   - there is no helper at all (the page opened as a plain document), or
+ *   - the build is DEV_MODE and the page either carries `?devUser=` (the /dev
+ *     player) or is not framed (opened directly in a tab).
  */
 export function isDevFallback(): boolean {
-  if (DEV_MODE_FLAG && extParams.devUser) return true;
-  return !hasTwitchHelper();
+  if (!hasTwitchHelper()) return true;
+  if (!DEV_MODE_FLAG) return false;
+  return extParams.devUserExplicit || !isFramed();
 }
 
 // ---------------------------------------------------------------------------
@@ -341,11 +369,31 @@ export function start(role: DevRole = 'viewer'): void {
   installed = true;
   devRole = role;
 
+  // First thing the bundle does: did the helper script, loaded ahead of us by
+  // the HTML, actually define Twitch.ext?
+  if (typeof window !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log('[GTAMAP] helper', {
+      twitch: !!window.Twitch,
+      ext: !!window.Twitch?.ext,
+      version: window.Twitch?.ext?.version ?? null,
+    });
+  }
+
   const ext =
     typeof window === 'undefined' || isDevFallback() ? undefined : window.Twitch?.ext;
 
   if (ext) {
-    ext.onAuthorized((auth) => emitAuth(auth));
+    ext.onAuthorized((auth) => {
+      // Ids and a presence flag only — never auth.token or auth.helixToken.
+      // eslint-disable-next-line no-console
+      console.log('[GTAMAP] authorized', {
+        channelId: auth.channelId,
+        clientId: auth.clientId,
+        userIdPresent: !!auth.userId,
+      });
+      emitAuth(auth);
+    });
     ext.onContext?.((ctx) => {
       latestContext = { ...latestContext, ...ctx };
       for (const cb of contextListeners) cb(latestContext);
@@ -366,23 +414,14 @@ export function start(role: DevRole = 'viewer'): void {
       publishDiagnostics();
     });
 
+    // No timed dev-token fallback here: inside Twitch the only valid identity
+    // is the one Twitch signs, and a slow onAuthorized must not be replaced by
+    // a fake one. Cases that really need the fallback are caught above.
     logDiagnostics('twitch helper wired');
-
-    // Belt and braces: if the helper is present but never authorises us (a
-    // hosted-test misconfiguration, or the page opened outside Twitch with a
-    // dev build), fall back rather than showing an empty overlay forever.
-    if (DEV_MODE_FLAG) {
-      window.setTimeout(() => {
-        if (latestAuth) return;
-        void mintDevToken(extParams.devUser, devRole)
-          .then((auth) => emitAuth(auth))
-          .catch((err: unknown) => emitError(err));
-      }, 3000);
-    }
     return;
   }
 
-  // No helper on the page: local dev / player simulator.
+  // Standing in for Twitch: local dev / player simulator / page opened directly.
   void mintDevToken(extParams.devUser, devRole)
     .then((auth) => emitAuth(auth))
     .catch((err: unknown) => emitError(err));

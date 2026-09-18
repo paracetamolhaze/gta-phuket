@@ -26,6 +26,7 @@ const stage = join(webRoot, 'extension-build');
  * from the extension's own origin plus Twitch's own helper.
  */
 const ALLOWED_SCRIPT_HOSTS = ['extension-files.twitch.tv'];
+const TWITCH_HELPER_SRC = 'https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js';
 
 const JS_RULES = [
   {
@@ -122,6 +123,19 @@ async function main() {
     }
 
     if (ext === '.html') {
+      // Twitch reports "Extension Helper Library Not Loaded" when anything runs
+      // ahead of its helper, so on a Twitch page it must be the first script.
+      const firstScript = /<script\b[^>]*>/i.exec(text);
+      const firstSrc = firstScript && /\ssrc="([^"]+)"/i.exec(firstScript[0]);
+      if (!firstSrc || firstSrc[1] !== TWITCH_HELPER_SRC) {
+        findings.push({
+          rel,
+          rule: 'helper-not-first',
+          message: `the first <script> must be ${TWITCH_HELPER_SRC}`,
+          line: firstScript ? text.slice(0, firstScript.index).split('\n').length : 0,
+        });
+      }
+
       for (const m of text.matchAll(/<script[^>]*\ssrc="([^"]+)"/gi)) {
         const src = m[1] ?? '';
         if (!/^https?:\/\//i.test(src)) continue;

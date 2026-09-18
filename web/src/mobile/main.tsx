@@ -21,8 +21,8 @@ import { installMapboxCspWorker } from '../shared/mapbox';
  * only adds that parameter inside its own app, and this page has to render the
  * mobile layout when it is opened directly for Local Test verification too.
  */
-installMapboxCspWorker();
 start();
+installMapboxCspWorker();
 
 const host = document.getElementById('root');
 if (!host) throw new Error('#root is missing from mobile.html');
