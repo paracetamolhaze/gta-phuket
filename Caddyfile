@@ -35,10 +35,54 @@
 	encode zstd gzip
 
 	header {
-		# The extension is framed by Twitch, so nothing here may forbid framing.
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Content-Type-Options "nosniff"
 		-Server
+	}
+
+	# ------------------------------------------------------------ access log
+	# Answers "did Twitch even request the page": every request is logged with
+	# its Referer and Sec-Fetch-Dest. Anything that could carry a secret is
+	# removed first — extension JWTs travel in Authorization, and the OBS
+	# browser-source URL carries ?token=.
+	log {
+		output stdout
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+			request>uri query {
+				replace token REDACTED
+			}
+			wrap json
+		}
+	}
+
+	# ------------------------------------------------------- framing (Twitch)
+	# The three Twitch surfaces are framed by Twitch and must stay framable by
+	# every origin Twitch uses — the web player, the extension supervisor, the
+	# creator dashboard and the mobile app (a Capacitor webview). This list is
+	# the one Twitch's own extension CDN sends, as mirrored by the
+	# twitchextensioncsp reference module used for Local Test parity.
+	#
+	# An explicit allowlist rather than no header at all: it still lets Twitch
+	# in, and it stops any other site from framing the overlay to clickjack it.
+	#
+	# Matched on both spellings because `header` runs before `rewrite`, so it
+	# sees the path the browser asked for.
+	@twitchSurface path /video_overlay.html /video_overlay /mobile.html /mobile /config.html /config
+	header @twitchSurface {
+		Content-Security-Policy "frame-ancestors https://supervisor.ext-twitch.tv https://extension-files.twitch.tv https://*.twitch.tv https://*.twitch.tech https://localhost.twitch.tv:* https://localhost.twitch.tech:* http://localhost.rig.twitch.tv:* https://m-localhost.twitch.tech:* https://www-localhost.twitch.tech:* https://*.twitch.local capacitor://*.twitch.tv"
+		# X-Frame-Options has no allowlist form: any value would lock Twitch
+		# out, so it must never be present on these pages.
+		-X-Frame-Options
+	}
+
+	# The admin console is never embedded anywhere. Forbidding framing costs
+	# nothing and closes clickjacking against the one page with real controls.
+	@adminSurface path /admin.html /admin
+	header @adminSurface {
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Frame-Options "DENY"
 	}
 
 	# ---------------------------------------------------------------- dev lock
