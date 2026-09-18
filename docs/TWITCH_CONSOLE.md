@@ -30,7 +30,7 @@ Field names and rules come from Twitch's own documentation:
 | Logo Image | `docs/review-assets/logo-100x100.png` |
 | Discovery Image | `docs/review-assets/discovery-300x200.png` |
 | Screenshots | `docs/review-assets/screenshot-1024x768.png` |
-| Taskbar Icon | *(not asked: only Video - Component extensions have one)* |
+| Taskbar Icon | `docs/review-assets/taskbar-24x24.png` (optional field; must be exactly 24 × 24 PNG) |
 
 **Summary length.** Twitch documents no character limit for the Summary; the
 only rule is *"It should be 1-2 brief sentences describing what your Extension
@@ -186,6 +186,7 @@ Before pressing **Submit for Review**:
 | --- | --- | --- | --- | --- |
 | `docs/review-assets/logo-100x100.png` | 100 × 100 | PNG, RGB | 6 028 | Logo Image |
 | `docs/review-assets/discovery-300x200.png` | 300 × 200 | PNG, RGB | 35 427 | Discovery Image |
+| `docs/review-assets/taskbar-24x24.png` | 24 × 24 | PNG, RGBA | — | Taskbar Icon (optional) |
 | `docs/review-assets/screenshot-1024x768.png` | 1024 × 768 | PNG  RGB | 192 170 | Screenshots (the real release bundle  map open  captured with headless Chrome) |
 
 Twitch's requirements: logo *"must be a 100x100 PNG"*, discovery image *"must
