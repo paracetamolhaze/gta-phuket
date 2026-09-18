@@ -8,14 +8,21 @@
  */
 
 import { formatGta, formatGtaDelta, formatInteger } from '../shared/format';
-import type { WalletTransactionType, WalletView } from '../shared/types';
+import type { EconomyInfo, WalletTransactionType } from '../shared/types';
 
-/** The exchange terms; `EconomyInfo` from the state has every field of it. */
-type ExchangeOffer = WalletView['exchange'];
+/** The exchange terms the dialog explains; `EconomyInfo` has every field. */
+export type ExchangeOffer = Pick<
+  EconomyInfo,
+  'rewardTitle' | 'rewardCost' | 'gtaPerRedemption' | 'exchangeRate' | 'available'
+>;
 
 /** The two ways a viewer without a wallet identity is told what is missing. */
-export const LINK_PROMPT = 'Чтобы использовать GTA$, подключите Twitch';
+export const LINK_PROMPT = 'Подключите Twitch, чтобы использовать GTA$';
 export const LOGIN_PROMPT = 'Войдите в Twitch, чтобы использовать GTA$';
+/** The one label of every top-up button, in the chip and on the card. */
+export const TOP_UP_LABEL = '+ ПОПОЛНИТЬ';
+/** Shown instead of the send button when the balance cannot cover the price. */
+export const INSUFFICIENT_MESSAGE = 'Недостаточно GTA$.';
 
 /** Where the wallet read stands for the current viewer. */
 export type WalletLoad = 'idle' | 'loading' | 'ready' | 'error' | 'needs_id_share' | 'needs_login';
@@ -26,6 +33,16 @@ export interface WalletCredit {
   type: WalletTransactionType;
   amount: number;
   balance: number;
+}
+
+/**
+ * The balance as text. A failed re-read keeps the last balance the server
+ * confirmed; only a viewer who never got one sees the dash, and a first read
+ * still in flight shows an ellipsis rather than a zero that is not true.
+ */
+export function balanceText(load: WalletLoad, balance: number | null): string {
+  if (balance !== null) return formatGta(balance);
+  return load === 'error' ? formatGta(null) : 'GTA$ …';
 }
 
 // ---------------------------------------------------------------------------
@@ -42,6 +59,8 @@ export interface WalletChipProps {
 
 export function WalletChip({ load, balance, onTopUp, onIdShare }: WalletChipProps) {
   if (load === 'needs_login') {
+    // Logged out: the map is theirs to browse, the wallet is not. Twitch's own
+    // "Log in" is the only way forward, so there is no button to press here.
     return (
       <div className="walletChip walletChip--prompt walletChip--note panel">
         <span className="walletPrompt">{LOGIN_PROMPT}</span>
@@ -60,16 +79,13 @@ export function WalletChip({ load, balance, onTopUp, onIdShare }: WalletChipProp
     );
   }
 
-  // A failed re-read keeps the last balance the server confirmed; only a
-  // viewer who never got one sees the dash.
-  const value = balance !== null ? formatGta(balance) : load === 'error' ? formatGta(null) : 'GTA$ …';
   return (
     <div className="walletChip panel">
       <span className="walletBalance num" title="Ваш баланс GTA$" aria-live="polite">
-        {value}
+        {balanceText(load, balance)}
       </span>
       <button type="button" className="walletBtn walletBtn--accent" onClick={onTopUp}>
-        + ПОПОЛНИТЬ
+        {TOP_UP_LABEL}
       </button>
     </div>
   );
@@ -84,6 +100,9 @@ export interface TopUpDialogProps {
   offer: ExchangeOffer | null;
   /** Set once an EXCHANGE_CREDIT landed while the dialog was open. */
   credit: WalletCredit | null;
+  /** The live balance, so the dialog shows what a credit changed without a reload. */
+  load: WalletLoad;
+  balance: number | null;
   onClose: () => void;
 }
 
@@ -91,37 +110,39 @@ export interface TopUpDialogProps {
  * Says where to go, never pretends to take the viewer there: an extension
  * cannot open Twitch's Rewards tray, so there is deliberately no button for it.
  */
-export function TopUpDialog({ offer, credit, onClose }: TopUpDialogProps) {
+export function TopUpDialog({ offer, credit, load, balance, onClose }: TopUpDialogProps) {
   return (
-    <section className="topUp panel" role="dialog" aria-label="Пополнение GTA$">
+    <section className="topUp panel" role="dialog" aria-modal="false" aria-labelledby="topUpTitle">
       <div className="topUpHead">
-        <div className="topUpTitle">ПОПОЛНЕНИЕ GTA$</div>
+        <div className="topUpTitle" id="topUpTitle">
+          ПОПОЛНЕНИЕ GTA$
+        </div>
         <button type="button" className="topUpClose" aria-label="Закрыть" onClick={onClose}>
           ×
         </button>
       </div>
 
-      {credit ? (
-        <div className="topUpCredit" role="status">
-          <div className="topUpCreditAmount num">{formatGtaDelta(credit.amount)}</div>
-          <div className="topUpCreditBalance num">Баланс: {formatGta(credit.balance)}</div>
-          <button type="button" className="btn btn-primary topUpDone" onClick={onClose}>
-            Готово
-          </button>
+      {credit && (
+        <div className="topUpCredit" role="status" aria-live="polite">
+          <span className="topUpCreditAmount num">{formatGtaDelta(credit.amount)}</span>
+          <span className="topUpCreditNote">Зачислено</span>
         </div>
-      ) : offer ? (
+      )}
+
+      {offer ? (
         <>
           <div className="topUpText">Используйте награду Twitch:</div>
           <div className="topUpReward">«{offer.rewardTitle}»</div>
           <div className="topUpRate num">
-            {formatInteger(offer.rewardCost)} ETH → {formatInteger(offer.gtaPerRedemption)} GTA$
+            {formatInteger(offer.rewardCost)} ETH → {formatGta(offer.gtaPerRedemption)}
           </div>
+          <div className="topUpUnit num">1 ETH = {formatInteger(offer.exchangeRate)} GTA$</div>
           {offer.available ? (
-            <div className="topUpHint">Откройте награды Twitch и используйте «{offer.rewardTitle}».</div>
-          ) : (
-            <div className="topUpHint topUpHint--bad">
-              Награда обмена сейчас недоступна на Twitch. Попробуйте позже.
+            <div className="topUpHint">
+              Награды канала открываются кнопкой баллов рядом с полем ввода чата. GTA$ придут сюда сами.
             </div>
+          ) : (
+            <div className="topUpHint topUpHint--bad">Обмен сейчас недоступен. Попробуйте позже.</div>
           )}
         </>
       ) : (
@@ -131,6 +152,11 @@ export function TopUpDialog({ offer, credit, onClose }: TopUpDialogProps) {
           <div className="skel skel--sm" />
         </>
       )}
+
+      <div className={credit ? 'topUpBalance topUpBalance--fresh num' : 'topUpBalance num'}>
+        <span>Ваш баланс:</span>
+        <span className="topUpBalanceValue">{balanceText(load, balance)}</span>
+      </div>
     </section>
   );
 }

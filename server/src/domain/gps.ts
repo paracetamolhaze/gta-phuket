@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { query } from '../db/pool.js';
+import { env } from '../env.js';
 import { logger } from '../logger.js';
 import { redis } from '../redis/client.js';
 import { K } from '../redis/keys.js';
@@ -11,6 +12,58 @@ import {
   type GpsState,
   type PublicGps,
 } from './types.js';
+
+// ---------------------------------------------------------------------------
+// REVIEW DEMO GPS
+// ---------------------------------------------------------------------------
+//
+// Twitch reviews the extension on the live channel, usually while the streamer
+// is not walking around Phuket. With no fresh fix every quote fails with
+// gps_unavailable and the reviewer never sees a route or a price. With
+// REVIEW_DEMO_MODE on, every GPS read that quotes and displays use
+// (getGpsState, requireFreshGps, getPublicGps: so quotes, /api/ext/state, OBS,
+// sockets, admin and config) answers with a fixed, always-fresh fix at
+// REVIEW_DEMO_LAT / REVIEW_DEMO_LNG instead.
+//
+// Twitch reviewers cannot be identified by id (their accounts are not
+// published and the extension JWT carries no "reviewer" marker), so the switch
+// is channel-wide: every viewer sees the demo position while it is on. It is
+// meant for the review window only.
+//
+// The demo fix is computed on every read and never written to Redis or
+// Postgres. The streamer's real fixes keep being ingested and stored as usual,
+// they are just not used while the demo is on, so the two never mix, and
+// turning the flag off brings the live position back on the very next read.
+
+/** Accuracy reported for the demo fix: plausible for a phone, well inside any limit. */
+const REVIEW_DEMO_ACCURACY_M = 10;
+
+export function reviewDemoActive(): boolean {
+  return env.reviewDemo.active;
+}
+
+/** The synthetic fix, stamped "now" so it can never go stale. */
+function reviewDemoSample(now = Date.now()): GpsSample {
+  return {
+    lat: env.reviewDemo.lat,
+    lng: env.reviewDemo.lng,
+    accuracy: REVIEW_DEMO_ACCURACY_M,
+    heading: null,
+    speed: null,
+    timestamp: now,
+    receivedAt: now,
+    source: 'review_demo',
+  };
+}
+
+// Once per process, at boot: this module is loaded by every route that reads
+// GPS, and a demo left on by accident must be obvious in the api log.
+if (reviewDemoActive()) {
+  logger.warn(
+    { lat: env.reviewDemo.lat, lng: env.reviewDemo.lng },
+    'REVIEW DEMO GPS ACTIVE: quotes and maps use a fixed demo position for every viewer; live GPS is stored but not used',
+  );
+}
 
 export const gpsInputSchema = z.object({
   lat: z.number().refine(isValidLat, 'lat out of range'),
@@ -44,6 +97,11 @@ export class GpsRejected extends AppError {
  *
  * The device clock is not trusted for staleness — `receivedAt` is — but an
  * absurd device timestamp still means the sample is not what it claims to be.
+ *
+ * Returns the fix now in effect: the one just stored, or the review demo fix
+ * while REVIEW_DEMO_MODE is on. Every caller fans the result straight out
+ * (broadcastGps, refreshLiveNavigation), and a real position must not leak
+ * into a demo session through them.
  */
 export async function ingestGps(
   channelId: string,
@@ -107,7 +165,7 @@ export async function ingestGps(
     }
   }
 
-  return sample;
+  return reviewDemoActive() ? reviewDemoSample(now) : sample;
 }
 
 export async function getLatestSample(channelId: string): Promise<GpsSample | null> {
@@ -121,24 +179,33 @@ export async function getLatestSample(channelId: string): Promise<GpsSample | nu
 }
 
 export function classify(sample: GpsSample | null, settings: ChannelSettings, now = Date.now()): GpsState {
-  if (!sample) return { status: 'missing', sample: null, ageMs: null };
+  // The label comes from the sample itself, so the demo fix that ingestGps
+  // hands to broadcastGps is reported as such.
+  const source = sample?.source ?? 'live';
+  if (!sample) return { status: 'missing', sample: null, ageMs: null, source };
   const ageMs = now - sample.receivedAt;
-  if (ageMs > settings.gpsTimeoutSeconds * 1000) return { status: 'stale', sample, ageMs };
+  if (ageMs > settings.gpsTimeoutSeconds * 1000) return { status: 'stale', sample, ageMs, source };
   if (sample.accuracy > settings.maxGpsAccuracyMeters) {
-    return { status: 'inaccurate', sample, ageMs };
+    return { status: 'inaccurate', sample, ageMs, source };
   }
-  return { status: 'ok', sample, ageMs };
+  return { status: 'ok', sample, ageMs, source };
 }
 
 export async function getGpsState(
   channelId: string,
   settings: ChannelSettings,
 ): Promise<GpsState> {
+  if (reviewDemoActive()) {
+    // Not even read: the stored live fix plays no part while the demo is on.
+    const now = Date.now();
+    return { status: 'ok', sample: reviewDemoSample(now), ageMs: 0, source: 'review_demo' };
+  }
   return classify(await getLatestSample(channelId), settings);
 }
 
 /**
  * The origin used for routing and pricing. Viewers can never supply this.
+ * While REVIEW_DEMO_MODE is on it is the demo fix (see the top of this file).
  */
 export async function requireFreshGps(
   channelId: string,
@@ -167,12 +234,39 @@ export async function getPublicGps(
   channelId: string,
   settings: ChannelSettings,
 ): Promise<PublicGps> {
+  if (reviewDemoActive()) {
+    // A fixed point reveals nothing about where the streamer really is, so
+    // the viewer delay has nothing to protect; the rounding still applies so
+    // the shape matches what viewers get live.
+    const demo = roundLatLng(
+      { lat: env.reviewDemo.lat, lng: env.reviewDemo.lng },
+      settings.viewerLocationPrecision,
+    );
+    return {
+      status: 'ok',
+      lat: demo.lat,
+      lng: demo.lng,
+      heading: null,
+      speed: null,
+      ageMs: 0,
+      source: 'review_demo',
+    };
+  }
+
   const now = Date.now();
   const latest = await getLatestSample(channelId);
   const liveState = classify(latest, settings, now);
 
   if (!latest || liveState.status === 'missing') {
-    return { status: 'missing', lat: null, lng: null, heading: null, speed: null, ageMs: null };
+    return {
+      status: 'missing',
+      lat: null,
+      lng: null,
+      heading: null,
+      speed: null,
+      ageMs: null,
+      source: 'live',
+    };
   }
 
   let shown: GpsSample = latest;
@@ -197,6 +291,7 @@ export async function getPublicGps(
         heading: null,
         speed: null,
         ageMs: liveState.ageMs,
+        source: 'live',
       };
     }
   }
@@ -215,6 +310,7 @@ export async function getPublicGps(
     heading: shown.heading,
     speed: shown.speed,
     ageMs: liveState.ageMs,
+    source: 'live',
   };
 }
 

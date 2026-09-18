@@ -254,6 +254,11 @@ export type DevRole = 'viewer' | 'broadcaster';
  * anything but a broadcaster token, exactly as it will on real Twitch.
  */
 async function mintDevToken(userId: string, role: DevRole = 'viewer'): Promise<ExtAuth> {
+  // A page with no helper in a production build has nobody to mint a token
+  // for it (the public backend has no /api/dev). Failing here, before the
+  // request, also lets the bundler drop the dev endpoint from that build, so
+  // the review bundle never references it.
+  if (!DEV_MODE_FLAG) throw new Error('Dev token fallback is not in this build');
   const res = await devApi.post<DevTokenResponse>('/api/dev/ext-token', {
     userId,
     linked: true,

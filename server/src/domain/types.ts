@@ -50,9 +50,18 @@ export interface GpsSample {
   timestamp: number;
   /** Server receive time, epoch ms. Authoritative for staleness. */
   receivedAt: number;
+  /** Set only on the synthetic review demo fix; a stored sample is always live. */
+  source?: GpsSource;
 }
 
 export type GpsStatus = 'ok' | 'stale' | 'missing' | 'inaccurate';
+
+/**
+ * Where the position in use comes from. `live` is the streamer's phone;
+ * `review_demo` is the fixed REVIEW_DEMO_MODE fix (server/src/domain/gps.ts),
+ * computed on every read and never stored.
+ */
+export type GpsSource = 'live' | 'review_demo';
 
 export interface GpsState {
   status: GpsStatus;
@@ -60,6 +69,11 @@ export interface GpsState {
   sample: GpsSample | null;
   /** Age of the newest sample in ms, or null when there is none. */
   ageMs: number | null;
+  /**
+   * Always set by the server. Optional only so a client's placeholder state
+   * (before its first snapshot) need not invent one.
+   */
+  source?: GpsSource;
 }
 
 /** What a public viewer is allowed to see: delayed and/or rounded. */
@@ -70,6 +84,8 @@ export interface PublicGps {
   heading: number | null;
   speed: number | null;
   ageMs: number | null;
+  /** Always set by the server; optional for the same reason as on GpsState. */
+  source?: GpsSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +508,62 @@ export interface ViewerStatePayload {
   slots: { free: number; total: number };
   paymentMode: PaymentMode;
   economy: EconomyInfo;
+}
+
+// ---------------------------------------------------------------------------
+// Broadcaster Config page
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/ext/broadcaster/status: the Twitch Config page's readiness list.
+ *
+ * Booleans, counters and public names only. It travels to a page Twitch
+ * frames, so it never carries a token, a secret or a coordinate.
+ */
+export interface BroadcasterStatus {
+  channelId: string;
+  serverTime: number;
+  backend: { ok: boolean; devMode: boolean };
+  twitch: {
+    connected: boolean;
+    /** Login of the connected broadcaster account (public), null when unknown. */
+    login: string | null;
+    usingLocalStub: boolean;
+    scopes: string[];
+    /** Every subscription for this channel, any type or status; -1 = could not ask Twitch. */
+    eventsubCount: number;
+  };
+  eventsub: {
+    /** An enabled redemption.add subscription exists for this channel. */
+    ready: boolean;
+    /** Enabled redemption.add subscriptions for this channel; -1 = could not ask Twitch. */
+    count: number;
+  };
+  gps: {
+    /** `stale` also covers a fresh fix too inaccurate to price a route from. */
+    status: 'ok' | 'stale' | 'missing';
+    ageMs: number | null;
+    accuracy: number | null;
+    source: GpsSource;
+  };
+  reviewDemo: { active: boolean };
+  /** The public token the map needs is configured. */
+  mapbox: { ready: boolean };
+  /** Older field: either Mapbox token is configured. */
+  mapboxConfigured: boolean;
+  economy: {
+    paymentMode: PaymentMode;
+    exchangeRate: number;
+    exchangeReward: { ready: boolean; title: string | null; cost: number | null };
+  };
+  waypointsOpen: boolean;
+  slots: { free: number; total: number };
+  adminUrl: string;
+  /**
+   * Twitch connected, EventSub ready, Mapbox ready, exchange reward ready, and
+   * a usable position: live GPS ok, or the review demo on.
+   */
+  ready: boolean;
 }
 
 export interface SearchResult {

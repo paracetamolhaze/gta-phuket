@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "ext:zip": "node scripts/build-extension.mjs",
     "ext:check": "node scripts/check-extension-csp.mjs",
-    "ext:build": "vite build && node scripts/build-extension.mjs && node scripts/check-extension-csp.mjs"
+    "ext:check:final": "node scripts/check-extension-csp.mjs --final",
+    "ext:build": "node scripts/ext-release.mjs",
+    "ext:build:diag": "vite build && node scripts/build-extension.mjs && node scripts/check-extension-csp.mjs"
   },
   "dependencies": {
     "mapbox-gl": "^3.6.0",

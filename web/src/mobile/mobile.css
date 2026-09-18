@@ -1,93 +1,63 @@
 /* Twitch Mobile surface.
    Overrides on top of viewer.css for the one case the overlay layout cannot
    serve: a phone, where the extension gets its own rectangle instead of a
-   transparent layer over video, and every target is touched, not clicked. */
+   transparent layer over video, and every target is touched, not clicked.
+   The mobile layout itself (full-bleed map, bottom sheets, 44 px targets,
+   safe-area insets) lives in viewer.css under `[data-mobile='true']`, so a
+   phone opening the video overlay gets the same one. */
 
 body.page-mobile {
   /* Not transparent, unlike the video overlay: on mobile Twitch gives the
      extension its own surface, and a see-through one would show nothing. */
   background: var(--ink-0);
   overscroll-behavior: none;
+  /* No double-tap zoom delay and no text selection on a long press. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
+body.page-mobile,
 body.page-mobile #root {
   height: 100%;
+  overflow: hidden;
 }
 
 /* The whole surface is ours, so nothing needs to pass clicks through to a
    player underneath. */
 .page-mobile .viewer {
   pointer-events: auto;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
-/* Full-bleed map: the inset that keeps the desktop overlay clear of the Twitch
-   player controls has no meaning here. */
-.page-mobile .viewer[data-mobile='true'] .overlay {
-  inset: 0;
-  border-radius: 0;
-}
-
-/* Idle state: a solid bar pinned to the bottom, thumb-height. */
+/* Idle state: a solid bar pinned to the bottom, thumb-height, above the home
+   indicator. */
 .page-mobile .mobileBar {
-  left: 12px;
-  right: 12px;
-  bottom: calc(12px + env(safe-area-inset-bottom));
-  min-height: 64px;
-  padding: 10px 12px 10px 16px;
-}
-
-/* A GTA$ credit toast sits just above that bar, clear of the thumb. */
-.page-mobile .viewer[data-mobile='true'] .walletToast--collapsed {
-  left: 12px;
-  bottom: calc(88px + env(safe-area-inset-bottom));
-  max-width: calc(100% - 24px);
+  left: calc(12px + var(--safe-left));
+  right: calc(12px + var(--safe-right));
+  bottom: calc(12px + var(--safe-bottom));
+  min-height: 72px;
+  padding: 12px 12px 12px 16px;
 }
 
 .page-mobile .mobileBtn {
   min-height: 48px;
-  min-width: 112px;
+  min-width: 124px;
   font-size: 15px;
 }
 
-/* Bigger type and targets throughout the expanded map. */
-.page-mobile .viewer[data-mobile='true'] .searchInput {
-  min-height: 52px;
-  font-size: 16px; /* under 16px iOS Safari zooms the whole page on focus */
+/* A GTA$ credit toast sits just above that bar, clear of the thumb. */
+.page-mobile .viewer[data-mobile='true'] .walletToast--collapsed {
+  left: calc(12px + var(--safe-left));
+  bottom: calc(96px + var(--safe-bottom));
+  max-width: calc(100% - 24px);
 }
 
-.page-mobile .viewer[data-mobile='true'] .iconBtn {
-  min-width: 52px;
-  min-height: 52px;
-}
-
-.page-mobile .viewer[data-mobile='true'] .btn {
-  min-height: 54px;
-}
-
-.page-mobile .viewer[data-mobile='true'] .card {
-  padding-bottom: calc(16px + env(safe-area-inset-bottom));
-}
-
-/* Search results are the main scroll surface on a phone; give them room and
-   momentum, and keep each row a comfortable target. */
-.page-mobile .searchPanel {
-  max-height: 46vh;
-  -webkit-overflow-scrolling: touch;
-}
-
-.page-mobile .searchRow {
-  min-height: 60px;
-}
-
-/* A phone in landscape has almost no vertical room: drop the sheet to a strip. */
+/* A phone in landscape has almost no vertical room: the idle bar gets
+   shorter too (the rest of landscape lives in viewer.css). */
 @media (orientation: landscape) and (max-height: 460px) {
-  .page-mobile .searchPanel {
-    max-height: 32vh;
-  }
-  .page-mobile .viewer[data-mobile='true'] .card {
-    padding-top: 10px;
-    padding-bottom: 10px;
+  .page-mobile .mobileBar {
+    min-height: 64px;
+    padding: 8px 8px 8px 16px;
   }
 }

@@ -61,7 +61,13 @@ body.page-viewer #root {
   transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
+/* "🗺 КАРТА" is one inline run of text; the icon keeps the gap it always had. */
+.mapTriggerText {
+  white-space: nowrap;
+}
+
 .mapTriggerIcon {
+  margin-right: 3px;
   font-size: 15px;
   line-height: 1;
 }
@@ -89,7 +95,7 @@ body.page-viewer #root {
 /* ---------------------------------------------------------- local test only */
 
 /* Proof that video_overlay.html loaded and React mounted inside the Twitch
-   iframe. Build-time flag; never present in a review build. */
+   iframe. Build-time flag (VITE_DEV_MODE); compiled out of a review build. */
 .diagBadge {
   position: absolute;
   left: var(--trigger-left);
@@ -189,16 +195,17 @@ body.page-viewer #root {
   gap: 3px;
 }
 
+/* Wraps instead of trailing off: a destination name is never cut short. */
 .mobileBarName {
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .mobileBtn {
   flex: none;
-  min-width: 104px;
+  min-width: 112px;
+  letter-spacing: 0.08em;
 }
 
 /* ------------------------------------------------------------------ expanded */
@@ -234,6 +241,7 @@ body.page-viewer #root {
   transition: opacity 180ms ease, transform 180ms ease, visibility 0s;
 }
 
+/* Close, search, then the wallet — in one row, left to right. */
 .topBar {
   flex: none;
   display: flex;
@@ -258,11 +266,18 @@ body.page-viewer #root {
   background: rgba(255, 255, 255, 0.11);
 }
 
+.iconBtn:focus-visible,
+.cardClose:focus-visible,
+.searchClear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* --------------------------------------------------------------------- search */
 
 .search {
   position: relative;
-  flex: 1;
+  flex: 1 1 240px;
   min-width: 0;
   /* Stops short of the overlay's top-right corner, where Twitch's own UI sits. */
   max-width: 520px;
@@ -315,11 +330,11 @@ body.page-viewer #root {
 
 .searchClear {
   position: absolute;
-  right: 2px;
+  right: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-s);
   color: var(--text-dim);
   font-size: 22px;
@@ -334,6 +349,7 @@ body.page-viewer #root {
   right: 0;
   max-height: 44vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
 }
 
@@ -348,7 +364,9 @@ body.page-viewer #root {
   text-align: left;
 }
 
-.searchRow:hover {
+.searchRow:hover,
+.searchRow:focus-visible {
+  outline: none;
   background: rgba(255, 255, 255, 0.07);
 }
 
@@ -407,6 +425,7 @@ body.page-viewer #root {
   padding: 7px 10px;
   border-radius: var(--radius-s);
   font-size: 12px;
+  line-height: 1.3;
   background: rgba(255, 194, 71, 0.07);
   border: 1px solid rgba(255, 194, 71, 0.2);
 }
@@ -515,6 +534,7 @@ body.page-viewer #root {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   font-size: 12px;
+  line-height: 1.3;
   color: var(--text-dim);
   text-align: center;
   pointer-events: none;
@@ -522,18 +542,24 @@ body.page-viewer #root {
 
 /* ---------------------------------------------------------------------- card */
 
+/* Spans the whole map so a tall card can scroll within it; only the card
+   itself takes clicks, the rest of the map stays pannable. */
 .sheet {
   position: absolute;
   z-index: 3;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
+  inset: 10px;
   display: flex;
+  align-items: flex-end;
   pointer-events: none;
 }
 
 .card {
-  width: min(420px, 100%);
+  width: min(400px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -564,9 +590,10 @@ body.page-viewer #root {
 }
 
 .cardTitle {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 650;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .cardSub {
@@ -576,24 +603,24 @@ body.page-viewer #root {
 
 .cardMessage {
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .cardNote {
   font-size: 13px;
   color: var(--text-dim);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .cardClose {
   flex: none;
   width: 44px;
   height: 44px;
+  display: grid;
+  place-items: center;
   margin: -8px -8px 0 0;
   border-radius: var(--radius-s);
   color: var(--text-dim);
-  font-size: 24px;
-  line-height: 1;
 }
 
 .cardClose:hover {
@@ -601,31 +628,31 @@ body.page-viewer #root {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.statRow {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.stat {
+/* `1.4 км · ~19 мин` */
+.routeFacts {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
 }
 
-.statValue {
-  font-size: 16px;
-  font-weight: 600;
+.routeFact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
 }
 
-.stat--cost .statValue {
-  color: var(--accent);
+.routeFact svg {
+  flex: none;
+  color: var(--text-faint);
 }
 
 .statUnit {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-dim);
 }
@@ -637,8 +664,10 @@ body.page-viewer #root {
 .cardFoot {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   font-size: 12px;
+  line-height: 1.35;
   color: var(--text-dim);
 }
 
@@ -693,106 +722,99 @@ body.page-viewer #root {
 
 /* ------------------------------------------------------------ GTA$ quote card */
 
-.cardMeta {
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
 .gtaPrice {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   padding: 10px 12px;
   border-radius: var(--radius-s);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--hairline);
 }
 
-.gtaRow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+.gtaPriceValue {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.gtaBalance {
   font-size: 13px;
   color: var(--text-dim);
 }
 
-.gtaRowValue {
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
+.gtaBalance--short {
+  color: var(--danger);
 }
 
-.gtaRow--price .gtaRowValue {
-  font-size: 18px;
-  color: var(--accent);
-}
-
-/* "ОТПРАВИТЬ СТРИМЕРА — GTA$ 12 500" is long for a phone: let the label wrap,
-   never the amount. */
-.gtaBuy {
-  flex-wrap: wrap;
-  column-gap: 0.4em;
-  row-gap: 0;
-  padding-top: 6px;
-  padding-bottom: 6px;
-  line-height: 1.25;
-  text-align: center;
-}
-
-.gtaAmount {
-  white-space: nowrap;
-}
-
-.gtaShort {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 6px 6px 12px;
-  border-radius: var(--radius-s);
-  background: rgba(255, 107, 94, 0.08);
-  border: 1px solid rgba(255, 107, 94, 0.26);
-}
-
-.gtaShortText {
-  font-size: 13px;
+/* "Недостаточно GTA$." — stands where the send button would be. */
+.cardAlert {
+  font-size: 14px;
   font-weight: 600;
   color: var(--danger);
+}
+
+.gtaBuy {
+  letter-spacing: 0.08em;
+}
+
+/* Keeps the button's width steady while a purchase is in flight. */
+.btnSpinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: btnSpin 0.8s linear infinite;
+}
+
+@keyframes btnSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* "ТОЧКА ПРИНЯТА" and friends: the outcome, above the place it is about. */
+.cardStatus {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.cardStatus--ok {
+  color: var(--ok);
+}
+
+.gtaRest {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.gtaRestValue {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
   white-space: nowrap;
 }
 
 /* --------------------------------------------------------------- GTA$ wallet */
 
-/* Top-right of the open map: the balance, and under it whatever the balance
-   is currently saying (the top-up dialog, a credit toast). Only its children
-   take clicks, so the map around them stays pannable.
-
-   No z-index of its own, so each child is layered against the card sheet
-   (z-index 3) separately: on a short phone panel a tall card reaches the top
-   of the map, and there the card must win over the chip — the chip would
-   otherwise hide the card's title and catch the taps meant for its ×. The
-   dialog and the toast stay above the card: the dialog is opened from it. */
-.walletDock {
-  position: absolute;
-  top: 10px;
-  right: 10px;
+/* Top bar, right after the search: the balance, and under it the top-up
+   dialog. It never reaches the overlay's top-right corner, where Twitch draws
+   its own controls over the player. */
+.walletSlot {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  max-width: calc(100% - 20px);
-  pointer-events: none;
-}
-
-.walletDock > * {
-  z-index: 5;
-  pointer-events: auto;
-}
-
-/* Under the card sheet, over the map and the hint pill. */
-.walletDock > .walletChip {
-  z-index: 2;
+  justify-content: flex-end;
 }
 
 .walletChip {
@@ -800,14 +822,19 @@ body.page-viewer #root {
   align-items: center;
   gap: 10px;
   max-width: 100%;
+  min-height: 44px;
   padding: 5px 5px 5px 14px;
   border-radius: 999px;
 }
 
 .walletChip--prompt {
-  max-width: 320px;
-  padding: 7px 7px 7px 14px;
+  max-width: 340px;
+  padding: 5px 5px 5px 14px;
   border-radius: var(--radius-m);
+}
+
+.walletChip--note {
+  padding-right: 14px;
 }
 
 .walletBalance {
@@ -817,18 +844,15 @@ body.page-viewer #root {
 }
 
 .walletPrompt {
+  min-width: 0;
   font-size: 12px;
   line-height: 1.3;
   color: var(--text-dim);
 }
 
-.walletChip--note {
-  padding-right: 14px;
-}
-
 .walletBtn {
   flex: none;
-  min-height: 32px;
+  min-height: 34px;
   padding: 0 12px;
   border-radius: 999px;
   border: 1px solid var(--hairline-strong);
@@ -864,15 +888,33 @@ body.page-viewer #root {
   outline-offset: 2px;
 }
 
+/* Everything outside the open dialog: a tap there closes it. */
+.topUpScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  background: transparent;
+}
+
 /* The dialog only says where to go. An extension cannot open Twitch's
    Rewards tray, and nothing here pretends it can. */
 .topUp {
-  width: 300px;
-  max-width: 100%;
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  /* Never taller than the player it hangs in; scrolls on a small embed. */
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  animation: walletToastIn 160ms ease-out;
 }
 
 .topUpHead {
@@ -883,7 +925,7 @@ body.page-viewer #root {
 }
 
 .topUpTitle {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.14em;
   color: var(--text-dim);
@@ -891,9 +933,9 @@ body.page-viewer #root {
 
 .topUpClose {
   flex: none;
-  width: 36px;
-  height: 36px;
-  margin: -6px -8px -6px 0;
+  width: 44px;
+  height: 44px;
+  margin: -8px -10px -8px 0;
   border-radius: var(--radius-s);
   color: var(--text-dim);
   font-size: 22px;
@@ -914,13 +956,19 @@ body.page-viewer #root {
   font-size: 15px;
   font-weight: 650;
   line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .topUpRate {
-  font-size: 18px;
-  font-weight: 650;
+  font-size: 20px;
+  font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
+}
+
+.topUpUnit {
+  font-size: 13px;
+  color: var(--text-dim);
 }
 
 .topUpHint {
@@ -935,25 +983,49 @@ body.page-viewer #root {
 
 .topUpCredit {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-s);
+  background: rgba(88, 211, 140, 0.1);
+  border: 1px solid rgba(88, 211, 140, 0.3);
+  animation: walletToastIn 180ms ease-out;
 }
 
 .topUpCreditAmount {
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--ok);
   white-space: nowrap;
 }
 
-.topUpCreditBalance {
-  font-size: 14px;
+.topUpCreditNote {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.topUpBalance {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.topUpBalanceValue {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
   white-space: nowrap;
 }
 
-.topUpDone {
-  margin-top: 8px;
-  min-height: 40px;
+.topUpBalance--fresh .topUpBalanceValue {
+  color: var(--ok);
 }
 
 /* Informational only: never takes a click, never covers the trigger. */
@@ -967,12 +1039,8 @@ body.page-viewer #root {
   animation: walletToastIn 180ms ease-out;
 }
 
-.walletDock > .walletToast {
-  pointer-events: none;
-}
-
 .walletToastAmount {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--ok);
   white-space: nowrap;
@@ -982,6 +1050,16 @@ body.page-viewer #root {
   font-size: 12px;
   color: var(--text-dim);
   white-space: nowrap;
+}
+
+/* Open map: top-left of the map, clear of the dialog under the balance, and
+   above the dialog's scrim so a phone never shows it dimmed. */
+.walletToast--map {
+  position: absolute;
+  z-index: 21;
+  top: 10px;
+  left: 10px;
+  max-width: calc(100% - 20px);
 }
 
 /* Collapsed overlay: above the trigger and the task pill that sits on it, so
@@ -1004,15 +1082,6 @@ body.page-viewer #root {
   }
 }
 
-/* With the wallet in the top-right corner, the idle hint moves to the left
-   instead of running underneath it. */
-.walletDock ~ .hintPill {
-  left: 10px;
-  transform: none;
-  max-width: calc(100% - 360px);
-  text-align: left;
-}
-
 .skel {
   border-radius: 6px;
   background: linear-gradient(
@@ -1030,6 +1099,12 @@ body.page-viewer #root {
   width: 72%;
 }
 
+.skel--price {
+  height: 62px;
+  width: 100%;
+  border-radius: var(--radius-s);
+}
+
 .skel--btn {
   height: 48px;
   width: 100%;
@@ -1045,106 +1120,384 @@ body.page-viewer #root {
   }
 }
 
-/* ----------------------------------------------------------------- mobile */
+/* A small embedded player (down to 640×360): the same card, tighter, so the
+   price and the send button fit without scrolling. */
+@media (max-height: 440px) {
+  .viewer[data-mobile='false'] .card {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .viewer[data-mobile='false'] .cardTitle {
+    font-size: 16px;
+  }
+  .viewer[data-mobile='false'] .cardHead .cardClose {
+    width: 36px;
+    height: 36px;
+    margin: -6px -6px 0 0;
+  }
+  .viewer[data-mobile='false'] .gtaPrice {
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 12px;
+    padding: 6px 10px;
+  }
+  .viewer[data-mobile='false'] .gtaPriceValue {
+    font-size: 20px;
+  }
+  .viewer[data-mobile='false'] .cardAction {
+    min-height: 40px;
+  }
+}
+
+/* ----------------------------------------------------------------- mobile
+   A phone (mobile.html, Twitch's ?platform=mobile, or a very narrow player):
+   the map full-bleed, the balance and the way back on top, the search under
+   them, and the card as a bottom sheet with one primary action. Every target
+   is at least 44 px and nothing depends on hover. env() insets are 0 wherever
+   there is no notch or home indicator. */
 
 .viewer[data-mobile='true'] {
   --ov-x: 0%;
   --ov-top: 0%;
   --ov-bottom: 0%;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 .viewer[data-mobile='true'] .overlay {
+  gap: 8px;
+  padding: 0;
   border: none;
   border-radius: 0;
-  padding: 8px;
+  background: var(--ink-0);
 }
 
-.viewer[data-mobile='true'] .sheet {
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
+.viewer[data-mobile='true'] .topBar {
+  padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
 }
 
-.viewer[data-mobile='true'] .card {
-  width: 100%;
-  padding: 16px;
-  gap: 14px;
+/* With a wallet: [back][balance · + ПОПОЛНИТЬ] on top, the search under it. */
+.viewer[data-mobile='true'] .topBar--wallet {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    'close wallet'
+    'search search';
+  align-items: center;
 }
 
-.viewer[data-mobile='true'] .cardTitle {
-  font-size: 19px;
+.viewer[data-mobile='true'] .topBar--wallet > .topBarClose {
+  grid-area: close;
+}
+
+.viewer[data-mobile='true'] .topBar--wallet > .search {
+  grid-area: search;
+}
+
+/* Static on a phone, so the dialog inside it can sit at the bottom of the
+   screen as a sheet instead of hanging off the chip. */
+.viewer[data-mobile='true'] .walletSlot {
+  grid-area: wallet;
+  position: static;
+  justify-content: flex-end;
+}
+
+.viewer[data-mobile='true'] .banners {
+  padding: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
+}
+
+.viewer[data-mobile='true'] .mapWrap {
+  border: none;
+  border-radius: 0;
 }
 
 .viewer[data-mobile='true'] .searchInput,
 .viewer[data-mobile='true'] .iconBtn {
-  height: 50px;
+  height: 48px;
 }
 
 .viewer[data-mobile='true'] .iconBtn {
-  width: 50px;
+  width: 48px;
+}
+
+/* Under 16px iOS Safari zooms the whole page on focus. */
+.viewer[data-mobile='true'] .searchInput {
+  font-size: 16px;
+}
+
+.viewer[data-mobile='true'] .searchPanel {
+  max-height: 46vh;
+  -webkit-overflow-scrolling: touch;
 }
 
 .viewer[data-mobile='true'] .searchRow {
   min-height: 56px;
 }
 
-.viewer[data-mobile='true'] .btn {
-  min-height: 52px;
+.viewer[data-mobile='true'] .searchRowName,
+.viewer[data-mobile='true'] .searchRowMeta {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
-.viewer[data-mobile='true'] .hintPill {
-  top: 8px;
-  font-size: 11px;
+.viewer[data-mobile='true'] .walletChip {
+  min-height: 48px;
+  padding: 4px 4px 4px 14px;
 }
 
-/* A phone has no room for both along the top edge. The hint only shows while
-   there is no card, so the bottom is free for it. */
-.viewer[data-mobile='true'] .walletDock ~ .hintPill {
-  top: auto;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 82%;
-  text-align: center;
-}
-
-.viewer[data-mobile='true'] .walletDock {
-  top: 8px;
-  right: 8px;
-  max-width: calc(100% - 16px);
+.viewer[data-mobile='true'] .walletChip--note {
+  padding-right: 14px;
 }
 
 .viewer[data-mobile='true'] .walletBtn {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
 }
 
-.viewer[data-mobile='true'] .topUpClose {
+/* The map's own chrome moves to the top corner: at the bottom it would sit
+   under the card. */
+.viewer[data-mobile='true'] .mapboxgl-ctrl-bottom-right {
+  top: 0;
+  bottom: auto;
+}
+
+.viewer[data-mobile='true'] .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl {
+  margin: 8px 8px 0 0;
+}
+
+/* Mapbox's own "i" and logo are links too: finger-sized on a phone. */
+.viewer[data-mobile='true'] .mapboxgl-ctrl-attrib.mapboxgl-compact {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 44px 0 0;
+  border-radius: 22px;
+}
+
+.viewer[data-mobile='true'] .mapboxgl-ctrl-attrib.mapboxgl-compact-show {
+  display: flex;
+  align-items: center;
+  padding: 4px 48px 4px 12px;
+}
+
+.viewer[data-mobile='true'] .mapboxgl-ctrl-attrib-button {
   width: 44px;
   height: 44px;
+  border-radius: 22px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.viewer[data-mobile='true'] .mapboxgl-ctrl-logo {
+  height: 44px;
+  margin: 0;
+  background-position: left center;
+}
+
+.viewer[data-mobile='true'] .hintPill {
+  top: auto;
+  bottom: calc(12px + var(--safe-bottom));
+  font-size: 12px;
+}
+
+.viewer[data-mobile='true'] .walletToast--map {
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  width: max-content;
+  margin: 0 auto;
+  max-width: calc(100% - 16px);
+  align-items: center;
+}
+
+/* The card is a bottom sheet: edge to edge, above the home indicator. */
+.viewer[data-mobile='true'] .sheet {
+  inset: 0;
+}
+
+.viewer[data-mobile='true'] .card {
+  width: 100%;
+  max-height: 72%;
+  gap: 14px;
+  padding: 18px calc(16px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.5);
+}
+
+
+.viewer[data-mobile='true'] .cardTitle {
+  font-size: 20px;
+}
+
+.viewer[data-mobile='true'] .btn {
+  min-height: 52px;
+  font-size: 15px;
+}
+
+/* The top-up dialog is a bottom sheet over a dimmed map. */
+.viewer[data-mobile='true'] .topUpScrim {
+  background: rgba(2, 5, 7, 0.55);
+}
+
+.viewer[data-mobile='true'] .topUp {
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-width: none;
+  max-height: 80%;
+  overflow-y: auto;
+  gap: 10px;
+  padding: 16px calc(16px + var(--safe-right)) calc(18px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 18px 18px 0 0;
+}
+
+.viewer[data-mobile='true'] .topUpTitle {
+  font-size: 13px;
+}
+
+.viewer[data-mobile='true'] .topUpClose {
+  margin: -8px -8px -8px 0;
 }
 
 /* Just above the mobile bar. */
 .viewer[data-mobile='true'] .walletToast--collapsed {
   left: 8px;
-  bottom: 80px;
+  bottom: 88px;
   max-width: calc(100% - 16px);
 }
 
-@media (max-width: 420px) {
-  .statRow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+/* However short the sheet gets, its one main button stays in view: when the
+   card has to scroll, the button pins to the sheet's bottom edge instead of
+   waiting below it. */
+.viewer[data-mobile='true'] .card .cardAction {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+}
+
+/* The Twitch app shows a mobile extension in the chat area under the video,
+   often only 350-450 px tall. A portrait phone is too narrow to put the
+   search beside the balance, so the two header rows stay, but everything gets
+   tighter so the price and the main button fit on the sheet without
+   scrolling. Targets stay at 44 px. */
+@media (max-height: 560px) {
+  .viewer[data-mobile='true'] .overlay {
+    gap: 6px;
   }
-  .stat--cost {
-    grid-column: 1 / -1;
+  .viewer[data-mobile='true'] .topBar {
+    gap: 6px 8px;
+    padding-top: calc(6px + var(--safe-top));
+  }
+  .viewer[data-mobile='true'] .searchInput,
+  .viewer[data-mobile='true'] .iconBtn {
+    height: 44px;
+  }
+  .viewer[data-mobile='true'] .iconBtn {
+    width: 44px;
+  }
+  .viewer[data-mobile='true'] .walletChip {
+    min-height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .viewer[data-mobile='true'] .card {
+    max-height: 100%;
+    gap: 8px;
+    padding: 10px calc(14px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(14px + var(--safe-left));
+  }
+  .viewer[data-mobile='true'] .cardTitle {
+    font-size: 17px;
+  }
+  .viewer[data-mobile='true'] .gtaPrice {
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 12px;
+    padding: 6px 10px;
+  }
+  .viewer[data-mobile='true'] .gtaPriceValue {
+    font-size: 20px;
+  }
+  .viewer[data-mobile='true'] .btn {
+    min-height: 44px;
+  }
+  .viewer[data-mobile='true'] .topUp {
+    max-height: 92%;
+  }
+}
+
+/* A phone on its side has width to spare and almost no height: one header
+   row, and a tighter card that still shows the price and the button. */
+@media (orientation: landscape) and (max-height: 460px) {
+  .viewer[data-mobile='true'] .topBar--wallet {
+    display: flex;
+  }
+  .viewer[data-mobile='true'] .searchInput,
+  .viewer[data-mobile='true'] .iconBtn {
+    height: 44px;
+  }
+  .viewer[data-mobile='true'] .iconBtn {
+    width: 44px;
+  }
+  .viewer[data-mobile='true'] .walletChip {
+    min-height: 44px;
+    padding: 0 0 0 14px;
+  }
+  .viewer[data-mobile='true'] .searchPanel {
+    max-height: 40vh;
+  }
+  .viewer[data-mobile='true'] .card {
+    width: min(460px, 100%);
+    margin: 0 auto;
+    max-height: 100%;
+    gap: 8px;
+    padding: 10px calc(16px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(16px + var(--safe-left));
+    border-left: 1px solid var(--hairline);
+    border-right: 1px solid var(--hairline);
+  }
+  .viewer[data-mobile='true'] .cardTitle {
+    font-size: 17px;
+  }
+  .viewer[data-mobile='true'] .gtaPrice {
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 12px;
+    padding: 6px 10px;
+  }
+  .viewer[data-mobile='true'] .gtaPriceValue {
+    font-size: 20px;
+  }
+  .viewer[data-mobile='true'] .btn {
+    min-height: 44px;
+  }
+  .viewer[data-mobile='true'] .topUp {
+    width: min(460px, 100%);
+    margin: 0 auto;
+    max-height: 92%;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .mapPlayerHalo,
   .skel,
-  .walletToast {
+  .walletToast,
+  .topUp,
+  .topUpCredit {
     animation: none;
+  }
+  .btnSpinner {
+    animation-duration: 2.4s;
   }
   .overlay {
     transform: none;

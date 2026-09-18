@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+html,body{margin:0;padding:0;width:100px;height:100px;overflow:hidden;background:#07100d}
+svg{display:block}
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="halo">
+      <stop offset="0" stop-color="#ffc247" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffc247" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="100" height="100" fill="#07100d"/>
+  <!-- faint street grid: a map, not a picture of one -->
+  <g stroke="#ffffff" stroke-opacity="0.07" stroke-width="1.2" fill="none">
+    <path d="M-5 30 L105 12"/>
+    <path d="M-5 70 L105 52"/>
+    <path d="M30 -5 L42 105"/>
+    <path d="M74 -5 L86 105"/>
+  </g>
+  <!-- walking route -->
+  <path d="M19 83 C 33 83, 29 66, 42 66 S 57 76, 59 66.5" fill="none" stroke="#45e0c0" stroke-width="5.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="19" cy="83" r="6" fill="#45e0c0"/>
+  <circle cx="19" cy="83" r="2.4" fill="#07100d"/>
+  <!-- waypoint pin (same shape as the app icon) -->
+  <circle cx="59" cy="37" r="30" fill="url(#halo)"/>
+  <g transform="translate(59 36) scale(0.25) translate(-256 -206)">
+    <path d="M256 112c-52 0-94 42-94 94 0 62 78 122 91 131a5 5 0 0 0 6 0c13-9 91-69 91-131 0-52-42-94-94-94z" fill="#ffc247"/>
+    <circle cx="256" cy="206" r="38" fill="#07100d"/>
+  </g>
+</svg>
+</body></html>

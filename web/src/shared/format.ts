@@ -15,6 +15,27 @@ export function formatDuration(seconds: number | null | undefined): string {
   return m ? `${h} ч ${m} мин` : `${h} ч`;
 }
 
+/**
+ * The viewer's route length: always kilometres, one decimal — `1.4 км`,
+ * `0.6 км`. One unit on every card, so two destinations compare at a glance.
+ * A route is never shown as `0.0 км`: anything shorter reads as `0.1 км`.
+ */
+export function formatKm(meters: number | null | undefined): string {
+  if (meters == null || !Number.isFinite(meters)) return '—';
+  const tenths = Math.max(1, Math.round(meters / 100));
+  return `${(tenths / 10).toFixed(1)} км`;
+}
+
+/** The viewer's walking time, rounded to the minute: `~19 мин`, `~1 ч 5 мин`. */
+export function formatApproxDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  const total = Math.max(1, Math.round(seconds / 60));
+  if (total < 60) return `~${total} мин`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m ? `~${h} ч ${m} мин` : `~${h} ч`;
+}
+
 export function formatPoints(points: number | null | undefined): string {
   if (points == null || !Number.isFinite(points)) return '—';
   return points.toLocaleString('ru-RU');
@@ -48,10 +69,15 @@ export function formatGta(n: number | null | undefined): string {
   return `GTA$ ${formatInteger(n)}`;
 }
 
-/** A ledger movement: `+5 000 GTA$`, `−1 500 GTA$`. */
+/**
+ * A ledger movement as the viewer is told about it: `+ GTA$ 5 000`,
+ * `− GTA$ 1 500`. Same `GTA$ ` prefix as every other amount, so a credit and
+ * the balance it produced read as the same currency.
+ */
 export function formatGtaDelta(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return '— GTA$';
-  return `${n > 0 ? '+' : ''}${formatInteger(n)} GTA$`;
+  if (n == null || !Number.isFinite(n)) return formatGta(null);
+  const sign = n > 0 ? '+ ' : n < 0 ? '− ' : '';
+  return `${sign}${formatGta(Math.abs(n))}`;
 }
 
 export function formatCountdown(msLeft: number): string {
@@ -99,15 +125,21 @@ export function routeToGeoJson(encoded: string | null | undefined): GeoJSON.Feat
   return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } };
 }
 
-/** Human label for a raw Mapbox POI class, falling back to a tidy title case. */
+/**
+ * Russian label for a Mapbox POI class, `maki` icon id or feature type. Keys
+ * are lower case with `_` for any separator (`fast-food` looks up `fast_food`).
+ */
 const CATEGORY_LABELS: Record<string, string> = {
   restaurant: 'Ресторан',
   food_and_drink: 'Еда и напитки',
   food: 'Еда',
+  fast_food: 'Фастфуд',
   bar: 'Бар',
+  beer: 'Бар',
   cafe: 'Кафе',
   shopping: 'Шопинг',
   shop: 'Магазин',
+  convenience: 'Магазин',
   mall: 'Торговый центр',
   grocery: 'Продукты',
   lodging: 'Отель',
@@ -117,21 +149,40 @@ const CATEGORY_LABELS: Record<string, string> = {
   attraction: 'Достопримечательность',
   tourism: 'Туризм',
   landmark: 'Достопримечательность',
+  monument: 'Достопримечательность',
+  viewpoint: 'Смотровая площадка',
   museum: 'Музей',
+  religious: 'Храм',
+  place_of_worship: 'Храм',
   nightlife: 'Ночная жизнь',
   fitness: 'Спорт',
   medical: 'Медицина',
+  hospital: 'Медицина',
+  pharmacy: 'Аптека',
   place: 'Место',
   address: 'Адрес',
+  street: 'Улица',
 };
 
+/** Own keys only: a category id like `constructor` must not find Object's. */
+function labelFor(key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(CATEGORY_LABELS, key) ? CATEGORY_LABELS[key] : undefined;
+}
+
+/**
+ * Tap-picked places carry the map tiles' English ids (`religious-buddhist`,
+ * `restaurant-seafood`), search results Russian categories from Mapbox. An id
+ * with no Russian label here gets no subtitle at all rather than English text
+ * on an otherwise Russian card; Russian text is shown as it came.
+ */
 export function categoryLabel(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const key = raw.toLowerCase().trim();
-  if (CATEGORY_LABELS[key]) return CATEGORY_LABELS[key];
-  const first = key.split(/[,;]/)[0]?.trim();
-  if (first && CATEGORY_LABELS[first]) return CATEGORY_LABELS[first];
+  const first = raw.toLowerCase().split(/[,;]/)[0]?.trim();
   if (!first) return null;
+  const key = first.replace(/[\s-]+/g, '_');
+  const label = labelFor(key) ?? labelFor(key.split('_')[0] ?? '');
+  if (label) return label;
+  if (!/[а-яё]/.test(first) || /[a-z]/.test(first)) return null;
   return first.replace(/_/g, ' ').replace(/^\p{Ll}/u, (c) => c.toUpperCase());
 }
 

@@ -45,6 +45,30 @@ async function exists(p) {
 }
 
 /**
+ * Trailing `//# sourceMappingURL=…` / `/*# sourceMappingURL=… *\/` comments.
+ * No .map file ever goes into the zip, so such a comment can only point at a
+ * 404. Vite drops them from what it bundles, but a file it copies as an asset
+ * keeps its own: the Mapbox CSP worker ends with one.
+ */
+const SOURCE_MAP_COMMENT = /(?:^|\r?\n)[ \t]*(?:\/\/[#@][ \t]*sourceMappingURL=[^\r\n]*|\/\*[#@][ \t]*sourceMappingURL=[^*]*\*\/)[ \t]*(?=\r?\n|$)/g;
+let sourceMapCommentsDropped = 0;
+
+/** cp, except that script and style files lose their source map comment. */
+async function copyStaged(from, to) {
+  if (/\.(?:m?js|css)$/i.test(from)) {
+    const text = await readFile(from, 'utf8');
+    const stripped = text.replace(SOURCE_MAP_COMMENT, '');
+    if (stripped !== text) {
+      sourceMapCommentsDropped += 1;
+      await writeFile(to, stripped, 'utf8');
+      return;
+    }
+  }
+  // Byte for byte otherwise: vendor files ship exactly as published.
+  await cp(from, to);
+}
+
+/**
  * Walk one manifest entry and everything it imports, collecting every file the
  * browser will end up asking for.
  */
@@ -94,7 +118,7 @@ async function main() {
     }
     const to = join(stage, file);
     await mkdir(dirname(to), { recursive: true });
-    await cp(from, to);
+    await copyStaged(from, to);
   }
 
   // The HTML itself is not listed as its own output file in the manifest.
@@ -138,7 +162,7 @@ async function main() {
   for (const ref of extra) {
     const to = join(stage, ref);
     await mkdir(dirname(to), { recursive: true });
-    await cp(join(dist, ref), to);
+    await copyStaged(join(dist, ref), to);
   }
 
   await rm(zipPath, { force: true });
@@ -173,6 +197,9 @@ async function main() {
     `\nTwitch extension bundle: ${relative(process.cwd(), zipPath)} ` +
       `(${(size / 1024 / 1024).toFixed(2)} MB, ${names.length} files, all paths use "/")`,
   );
+  if (sourceMapCommentsDropped) {
+    console.log(`  (dropped the source map comment from ${sourceMapCommentsDropped} file(s); no .map is shipped)`);
+  }
   console.log('  Video - Fullscreen Path : video_overlay.html');
   console.log('  Mobile Path             : mobile.html');
   console.log('  Config Path             : config.html');

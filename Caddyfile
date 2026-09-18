@@ -168,6 +168,8 @@
 	# ------------------------------------------------------------ friendly URLs
 	@privacy path /privacy
 	rewrite @privacy /privacy.html
+	@terms path /terms
+	rewrite @terms /terms.html
 	@streamer path /streamer
 	rewrite @streamer /streamer.html
 	@obs path /obs
@@ -186,7 +188,7 @@
 	# changed file gets a different name. The HTML must never be cached: it is
 	# what points at the current hashes, and a stale copy would keep loading an
 	# old bundle after every rebuild.
-	@html path *.html /privacy /streamer /obs /admin /config /video_overlay /mobile /
+	@html path *.html /privacy /terms /streamer /obs /admin /config /video_overlay /mobile /
 	header @html Cache-Control "no-store, must-revalidate"
 	@hashed path /assets/*
 	header @hashed Cache-Control "public, max-age=31536000, immutable"

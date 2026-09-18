@@ -14,8 +14,10 @@ import { installMapboxCspWorker } from '../shared/mapbox';
  * Same backend contract and same map as the video overlay, but a different
  * shell: on a phone there is no OBS minimap burnt into the video to put an
  * invisible hit area over, and no room for one either. The mobile layout is a
- * solid bottom bar that opens the map full-bleed — see the `data-mobile="true"`
- * branch in `viewer/App.tsx` and the overrides in `mobile.css`.
+ * solid bottom bar that opens the map full-bleed, with the GTA$ balance and
+ * the search on top and the destination card as a bottom sheet — see the
+ * `data-mobile="true"` branch in `viewer/App.tsx`, the `[data-mobile='true']`
+ * rules in `viewer/viewer.css` and the page-only overrides in `mobile.css`.
  *
  * `forceMobile` is set here rather than relying on `?platform=mobile`: Twitch
  * only adds that parameter inside its own app, and this page has to render the

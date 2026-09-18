@@ -71,6 +71,7 @@ function entryPoints(): Record<string, string> {
   const entries: Record<string, string> = {
     index: resolve(__dirname, 'index.html'),
     privacy: resolve(__dirname, 'privacy.html'),
+    terms: resolve(__dirname, 'terms.html'),
     video_overlay: resolve(__dirname, 'video_overlay.html'),
     mobile: resolve(__dirname, 'mobile.html'),
     config: resolve(__dirname, 'config.html'),
@@ -403,6 +404,10 @@ export default defineConfig(({ mode, command }) => ({
     // each Twitch entry needs — including files referenced from JavaScript
     // rather than from the HTML, such as the Mapbox CSP worker.
     manifest: true,
+    // Twitch review requires human-readable JavaScript, so the extension
+    // release build (web/scripts/ext-release.mjs sets EXT_RELEASE) ships our
+    // code unminified. Every other build keeps Vite's default.
+    minify: process.env.EXT_RELEASE === 'true' ? false : 'esbuild',
     sourcemap: mode !== 'production',
     rollupOptions: {
       input: entryPoints(),

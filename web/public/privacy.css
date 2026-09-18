@@ -1,5 +1,6 @@
-/* Standalone styling for the public privacy page. Kept separate from the app
-   bundle: this page must render even if every script is blocked. */
+/* Standalone styling for the public legal pages (/privacy, /terms). Kept
+   separate from the app bundle: these pages must render even if every script
+   is blocked, and Twitch reviewers open them directly. */
 :root {
   --ink: #05090c;
   --panel: #0d1419;
@@ -56,6 +57,37 @@ code {
   word-break: break-all;
 }
 a { color: var(--accent); }
+/* Brand line above the title; plain text, no artwork. */
+.pp-brand {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+/* The English block for reviewers: set apart so it reads as a summary of the
+   Russian document below, not as a second policy. */
+.pp-summary {
+  margin: 0 0 28px;
+  padding: 4px 20px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.pp-summary h2 {
+  margin-top: 14px;
+  padding-top: 0;
+  border-top: 0;
+}
+.pp-summary li { font-size: 15px; }
+.pp-links { margin: 6px 0 0; font-size: 14px; }
+/* The English version of the terms, after the Russian one. */
+.pp-lang {
+  margin-top: 56px;
+  padding-top: 8px;
+  border-top: 2px solid var(--accent);
+}
 .pp-foot {
   margin-top: 40px;
   padding-top: 18px;

@@ -43,6 +43,37 @@ export interface MapFocus {
   nonce: number;
 }
 
+/** How much of the map, in px from its left and bottom edges, a card covers. */
+export interface MapInsets {
+  left: number;
+  bottom: number;
+}
+
+/** Breathing room around a fitted route, and the least map it may be squeezed into. */
+const FIT_PADDING = 48;
+const FIT_MIN_SPAN = 120;
+
+/**
+ * Padding for fitting a route next to the card rather than under it: on
+ * whichever side leaves more map — above the card on a phone's bottom sheet,
+ * beside it on a wide overlay. Plain padding when neither leaves enough.
+ */
+function fitPadding(map: mapboxgl.Map, insets: MapInsets | null): mapboxgl.PaddingOptions {
+  const pad = { top: FIT_PADDING, bottom: FIT_PADDING, left: FIT_PADDING, right: FIT_PADDING };
+  if (!insets) return pad;
+  const host = map.getContainer();
+  const w = host.clientWidth;
+  const h = host.clientHeight;
+  const bottom = insets.bottom + FIT_PADDING / 2;
+  const left = insets.left + FIT_PADDING / 2;
+  const spanAbove = h - bottom - FIT_PADDING;
+  const spanBeside = w - left - FIT_PADDING;
+  const areaAbove = spanAbove >= FIT_MIN_SPAN ? spanAbove * (w - 2 * FIT_PADDING) : 0;
+  const areaBeside = spanBeside >= FIT_MIN_SPAN ? spanBeside * (h - 2 * FIT_PADDING) : 0;
+  if (areaAbove === 0 && areaBeside === 0) return pad;
+  return areaAbove >= areaBeside ? { ...pad, bottom } : { ...pad, left };
+}
+
 /** Patong — the default frame when the streamer has no fix yet. */
 const PATONG: [number, number] = [98.2958, 7.8961];
 const DEFAULT_ZOOM = 14;
@@ -205,11 +236,13 @@ export interface MapViewProps {
   routeGeometry: string | null;
   destination: LatLng | null;
   focus: MapFocus | null;
+  /** What the card currently covers, asked for at the moment a route is fitted. */
+  fitInsets?: () => MapInsets | null;
   onPick: (pick: MapPick) => void;
 }
 
 export default function MapView(props: MapViewProps) {
-  const { config, visible, player, routeGeometry, destination, focus, onPick } = props;
+  const { config, visible, player, routeGeometry, destination, focus, fitInsets, onPick } = props;
 
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -229,6 +262,10 @@ export default function MapView(props: MapViewProps) {
   onPickRef.current = onPick;
   const routeRef = useRef<string | null>(routeGeometry);
   routeRef.current = routeGeometry;
+  const fitInsetsRef = useRef(fitInsets);
+  fitInsetsRef.current = fitInsets;
+  const destinationRef = useRef<LatLng | null>(destination);
+  destinationRef.current = destination;
 
   // --- create the map once we have a token ---------------------------------
   useEffect(() => {
@@ -419,16 +456,21 @@ export default function MapView(props: MapViewProps) {
       return;
     }
 
+    // Framed once per destination, not once per geometry: the live route of a
+    // running job changes with every GPS fix, and re-framing on each one would
+    // keep yanking the map away from a viewer who is panning around.
+    const target = destinationRef.current;
+    const fitKey = target ? `${target.lat.toFixed(5)},${target.lng.toFixed(5)}` : routeGeometry;
     const coords = data.geometry.coordinates;
     const first = position(coords[0]);
-    if (!first || coords.length < 2 || fittedRouteRef.current === routeGeometry) return;
-    fittedRouteRef.current = routeGeometry;
+    if (!first || coords.length < 2 || fittedRouteRef.current === fitKey) return;
+    fittedRouteRef.current = fitKey;
     const box = new mapboxgl.LngLatBounds(first, first);
     for (const raw of coords) {
       const point = position(raw);
       if (point) box.extend(point);
     }
-    map.fitBounds(box, { padding: 56, maxZoom: 16.5, duration: 520 });
+    map.fitBounds(box, { padding: fitPadding(map, fitInsetsRef.current?.() ?? null), maxZoom: 16.5, duration: 520 });
   }, [routeGeometry, ready]);
 
   // --- destination pin -----------------------------------------------------

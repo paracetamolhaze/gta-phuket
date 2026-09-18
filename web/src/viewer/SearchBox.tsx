@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiClient } from '../shared/api';
 import { viewerMessage } from '../shared/api';
-import { categoryLabel, formatDistance } from '../shared/format';
+import { categoryLabel, formatKm } from '../shared/format';
 import type { SearchResult } from '../shared/types';
 
 const DEBOUNCE_MS = 350;
@@ -27,6 +27,7 @@ export default function SearchBox({ api, enabled, onSelect }: SearchBoxProps) {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const q = query.trim();
@@ -63,18 +64,21 @@ export default function SearchBox({ api, enabled, onSelect }: SearchBoxProps) {
     };
   }, [query, enabled, api]);
 
+  // Pointer events, so a tap outside closes the list on a phone as well.
   useEffect(() => {
-    const onDocDown = (event: MouseEvent): void => {
+    const onDocDown = (event: PointerEvent): void => {
       const node = boxRef.current;
       if (node && event.target instanceof Node && !node.contains(event.target)) setOpen(false);
     };
-    document.addEventListener('mousedown', onDocDown);
-    return () => document.removeEventListener('mousedown', onDocDown);
+    document.addEventListener('pointerdown', onDocDown);
+    return () => document.removeEventListener('pointerdown', onDocDown);
   }, []);
 
   const choose = (result: SearchResult): void => {
     setOpen(false);
     setQuery(result.name);
+    // Drops the on-screen keyboard, which would otherwise cover the card.
+    inputRef.current?.blur();
     onSelect(result);
   };
 
@@ -87,13 +91,14 @@ export default function SearchBox({ api, enabled, onSelect }: SearchBoxProps) {
         <path d="M15.8 15.8 21 21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
       <input
+        ref={inputRef}
         className="searchInput"
         type="search"
         inputMode="search"
         autoComplete="off"
         spellCheck={false}
         placeholder="Куда отправить стримера?"
-        aria-label="Поиск места"
+        aria-label="Куда отправить стримера?"
         value={query}
         disabled={!enabled}
         onFocus={() => setOpen(true)}
@@ -107,6 +112,7 @@ export default function SearchBox({ api, enabled, onSelect }: SearchBoxProps) {
             return;
           }
           if (event.key === 'Enter') {
+            event.preventDefault();
             const first = results[0];
             if (first) choose(first);
           }
@@ -121,6 +127,7 @@ export default function SearchBox({ api, enabled, onSelect }: SearchBoxProps) {
             setQuery('');
             setResults([]);
             setOpen(false);
+            inputRef.current?.focus();
           }}
         >
           ×
@@ -154,7 +161,7 @@ export default function SearchBox({ api, enabled, onSelect }: SearchBoxProps) {
                   )}
                 </span>
                 {result.approxDistanceMeters !== null && (
-                  <span className="searchRowDist num">≈ {formatDistance(result.approxDistanceMeters)}</span>
+                  <span className="searchRowDist num">≈ {formatKm(result.approxDistanceMeters)}</span>
                 )}
               </button>
             );

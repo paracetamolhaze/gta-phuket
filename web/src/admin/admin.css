@@ -132,6 +132,31 @@ body.page-admin {
   border-bottom: 1px solid rgba(255, 107, 94, 0.25);
 }
 
+/* Review demo GPS: loud on purpose, and pinned under the sticky header so it
+   stays in view while the console scrolls. */
+.ad-demoBanner {
+  position: sticky;
+  top: 52px;
+  z-index: 29;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text);
+  background: #3a2a07;
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+}
+
+.ad-demoBanner b {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
 /* --- layout ------------------------------------------------------------- */
 
 .ad-main {

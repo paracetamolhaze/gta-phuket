@@ -1,6 +1,27 @@
 import { z } from 'zod';
 
 /**
+ * The service area. Declared ahead of `build()`, which runs at import time
+ * and checks the review demo point against it.
+ */
+export const PHUKET_BOUNDS = {
+  minLng: 98.18,
+  minLat: 7.65,
+  maxLng: 98.52,
+  maxLat: 8.25,
+} as const;
+
+/**
+ * A coordinate with a default. An empty `REVIEW_DEMO_LAT=` line in .env means
+ * "use the default", not 0 (which `z.coerce` would make of it).
+ */
+const coordinate = (fallback: number) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.coerce.number().finite().default(fallback),
+  );
+
+/**
  * All configuration lives here. Nothing else in the server reads process.env.
  *
  * Secrets that must never reach a browser: TWITCH_CLIENT_SECRET,
@@ -92,6 +113,25 @@ const schema = z.object({
    * per-quote slot rewards, kept so a rollback is a config change.
    */
   WAYPOINT_PAYMENT_MODE: z.enum(['gta_dollar', 'channel_points_reward']).default('gta_dollar'),
+
+  /**
+   * REVIEW DEMO GPS (server/src/domain/gps.ts). While on, every GPS read that
+   * quotes and maps use answers with a fixed, always-fresh fix at
+   * REVIEW_DEMO_LAT / REVIEW_DEMO_LNG, so the Twitch review team can price and
+   * buy a waypoint while the streamer is offline.
+   *
+   * Channel-wide on purpose, and for the review window only: Twitch reviewers
+   * cannot be identified by id, so every viewer of the channel sees the demo
+   * position while this is on. Real GPS keeps being ingested and stored; it is
+   * simply not used until the flag goes back off.
+   */
+  REVIEW_DEMO_MODE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+  /** Demo position. Defaults to Patong; must lie inside the Phuket service area. */
+  REVIEW_DEMO_LAT: coordinate(7.8961),
+  REVIEW_DEMO_LNG: coordinate(98.2958),
 });
 
 export type Env = z.infer<typeof schema> & {
@@ -101,6 +141,8 @@ export type Env = z.infer<typeof schema> & {
   /** True when the app must talk to the real Twitch API and nothing else. */
   realTwitch: boolean;
   waypointPaymentMode: 'gta_dollar' | 'channel_points_reward';
+  /** REVIEW_DEMO_MODE and its position, in one place (see the schema above). */
+  reviewDemo: { active: boolean; lat: number; lng: number };
 };
 
 /** Everything REAL_TWITCH cannot work without. */
@@ -177,12 +219,36 @@ function build(): Env {
     }
   }
 
+  const reviewDemo = {
+    active: parsed.REVIEW_DEMO_MODE,
+    lat: parsed.REVIEW_DEMO_LAT,
+    lng: parsed.REVIEW_DEMO_LNG,
+  };
+  if (reviewDemo.active) {
+    // A demo point outside the service area would fail every quote with
+    // out_of_bounds — the review would see a broken map instead of a demo.
+    const b = PHUKET_BOUNDS;
+    const inside =
+      reviewDemo.lat >= b.minLat &&
+      reviewDemo.lat <= b.maxLat &&
+      reviewDemo.lng >= b.minLng &&
+      reviewDemo.lng <= b.maxLng;
+    if (!inside) {
+      throw new Error(
+        `REVIEW_DEMO_MODE=true needs REVIEW_DEMO_LAT/REVIEW_DEMO_LNG inside Phuket ` +
+          `(${b.minLat}..${b.maxLat}, ${b.minLng}..${b.maxLng}). ` +
+          `Got ${reviewDemo.lat}, ${reviewDemo.lng}.`,
+      );
+    }
+  }
+
   return {
     ...parsed,
     isProduction,
     isTest: parsed.NODE_ENV === 'test',
     realTwitch,
     waypointPaymentMode: parsed.WAYPOINT_PAYMENT_MODE,
+    reviewDemo,
     // Dev endpoints are hard-disabled in production, and in real Twitch mode:
     // a simulated redemption must never be able to stand in for a paid one.
     devModeEnabled: parsed.DEV_MODE && !isProduction && !realTwitch,
@@ -197,10 +263,3 @@ export function reloadEnv(): Env {
   Object.assign(env, next);
   return env;
 }
-
-export const PHUKET_BOUNDS = {
-  minLng: 98.18,
-  minLat: 7.65,
-  maxLng: 98.52,
-  maxLat: 8.25,
-} as const;

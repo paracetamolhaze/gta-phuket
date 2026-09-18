@@ -7,9 +7,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiClient, ApiFailure, viewerMessage } from '../shared/api';
+import { ApiClient, ApiFailure, isUnexplainedError, viewerMessage } from '../shared/api';
+import type { ViewerAction } from '../shared/api';
 import { bind, connectSocket } from '../shared/socket';
-import { formatDistance } from '../shared/format';
+import { formatKm } from '../shared/format';
 import type {
   ActiveWaypointView,
   EconomyInfo,
@@ -23,12 +24,12 @@ import type {
   WalletView,
 } from '../shared/types';
 import MapView, { parseExtConfig } from './MapView';
-import type { ExtConfig, MapFocus, MapPick } from './MapView';
+import type { ExtConfig, MapFocus, MapInsets, MapPick } from './MapView';
 import DestinationCard, { isGtaQuote } from './DestinationCard';
 import type { CardState } from './DestinationCard';
 import SearchBox from './SearchBox';
-import { TopUpDialog, WalletChip, WalletToast } from './Wallet';
-import type { WalletCredit, WalletLoad } from './Wallet';
+import { LINK_PROMPT, LOGIN_PROMPT, TopUpDialog, WalletChip, WalletToast } from './Wallet';
+import type { ExchangeOffer, WalletCredit, WalletLoad } from './Wallet';
 import { walletIdentity } from './identity';
 import type { ExtAuth } from './twitch';
 import {
@@ -125,6 +126,31 @@ interface Banner {
   tone: 'warn' | 'bad';
 }
 
+/**
+ * What the viewer reads for a failure. When that is the catch-all sentence,
+ * the backend hears which request failed and how — status and code only,
+ * never the server's text, which may quote anything.
+ */
+function errorText(err: unknown, where: string, action?: ViewerAction): string {
+  if (isUnexplainedError(err)) {
+    const what =
+      err instanceof ApiFailure
+        ? `${err.status} ${String(err.code).slice(0, 40)}`
+        : err instanceof Error
+          ? err.name
+          : typeof err;
+    diagEvent('runtime_error', { error: { message: `viewer ${where}: ${what}` } });
+  }
+  return viewerMessage(err, action);
+}
+
+/** Copy for the three states that stop a viewer from buying; the map still works. */
+const CLOSED_MESSAGE = 'Приём точек сейчас закрыт.';
+const BUSY_MESSAGE = 'Сейчас выполняется задание.';
+const GPS_DOWN_MESSAGE = 'GPS стримера временно недоступен.';
+/** Twitch never authorised this page, so nothing can be bought or searched. */
+const SESSION_MESSAGE = viewerMessage(new ApiFailure('unauthorized', '', 401));
+
 /** How long a credit or refund toast stays up. */
 const WALLET_TOAST_MS = 5000;
 
@@ -160,6 +186,21 @@ interface PurchaseResponse {
  */
 const DIAG_BADGE = (import.meta.env.VITE_DEV_MODE as string | undefined) === 'true';
 const SMOKE_TEST = isSmokeTest();
+
+/**
+ * The map button's face: one inline run, so it reads "🗺 КАРТА" as a single
+ * line of text wherever it is shown (overlay trigger and phone bar alike).
+ */
+function TriggerLabel() {
+  return (
+    <span className="mapTriggerText">
+      <span className="mapTriggerIcon" aria-hidden="true">
+        🗺
+      </span>{' '}
+      КАРТА
+    </span>
+  );
+}
 
 /** When the trigger is measured again after mount, in ms. */
 const TRIGGER_RECHECK_MS = [1000, 3000, 10000, 30000];
@@ -229,7 +270,11 @@ export default function App({ forceMobile = false }: AppProps = {}) {
     };
   }, []);
 
-  const api = useMemo(() => new ApiClient({ getToken: () => currentToken() }), []);
+  // The deadline sits above the server's own worst case for a quote (a few
+  // Mapbox calls with 8 s timeouts each), so it only ever cuts a connection
+  // that has really stalled: a purchase then lands on the "no answer, press
+  // again" path instead of a spinner that never ends.
+  const api = useMemo(() => new ApiClient({ getToken: () => currentToken(), timeoutMs: 20_000 }), []);
 
   const cardRef = useRef<CardState>(card);
   cardRef.current = card;
@@ -255,7 +300,11 @@ export default function App({ forceMobile = false }: AppProps = {}) {
       setAuth(next);
       setAuthError(null);
     });
-    const offError = onExtError((err) => setAuthError(viewerMessage(err)));
+    // The helper's error text is for diagnostics (twitch.ts reports it). The
+    // viewer only needs to know when it left them without a session at all.
+    const offError = onExtError(() => {
+      if (!currentToken()) setAuthError(SESSION_MESSAGE);
+    });
     return () => {
       offAuth();
       offError();
@@ -303,7 +352,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
         setAuthError(null);
       })
       .catch((err: unknown) => {
-        if (err instanceof ApiFailure && err.code === 'unauthorized') setAuthError(viewerMessage(err));
+        if (err instanceof ApiFailure && err.code === 'unauthorized') setAuthError(SESSION_MESSAGE);
       });
   }, [api]);
 
@@ -391,9 +440,9 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   }, [toast]);
 
   /**
-   * An exchange credit lands in the open top-up dialog, which is where the
-   * viewer is waiting for it; anything else, or a credit with the dialog
-   * closed, becomes a short toast.
+   * Every credit or refund pops up as a short toast. An exchange credit also
+   * lands in the top-up dialog when it is open — that is where the viewer is
+   * waiting for it — which then shows the amount and the new balance.
    */
   const announceCredit = useCallback((credit: WalletCredit) => {
     // One notice per ledger row, however many times the signal arrives.
@@ -402,7 +451,6 @@ export default function App({ forceMobile = false }: AppProps = {}) {
     if (paymentModeRef.current !== 'gta_dollar') return;
     if (credit.type === 'EXCHANGE_CREDIT' && topUpOpenRef.current && expandedRef.current) {
       setTopUp({ credit });
-      return;
     }
     setToast(credit);
   }, []);
@@ -480,7 +528,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
           paidQuoteRef.current = null;
           setCard({ kind: 'active', name: waypoint.destinationName, waypointId: waypoint.id });
         } else if (quoteOf(cardRef.current)) {
-          setCard({ kind: 'error', message: 'Сейчас выполняется задание…', code: 'waypoint_active' });
+          setCard({ kind: 'error', message: BUSY_MESSAGE, code: 'waypoint_active' });
         }
         refreshRef.current();
       }),
@@ -500,10 +548,10 @@ export default function App({ forceMobile = false }: AppProps = {}) {
         const current = cardRef.current;
         const mine = quoteOf(current);
         if (mine && payload.quoteId === mine.quoteId) {
-          setCard({ kind: 'error', message: 'Точка отменена', code: null });
+          setCard({ kind: 'error', message: 'Точка отменена.', code: null });
         } else if (current.kind === 'active' && current.waypointId === payload.id) {
           // A GTA$ refund, if there is one, arrives as its own wallet:updated.
-          setCard({ kind: 'error', message: 'Задание отменено', code: null });
+          setCard({ kind: 'error', message: 'Задание отменено.', code: null });
         }
         refreshRef.current();
       }),
@@ -520,9 +568,9 @@ export default function App({ forceMobile = false }: AppProps = {}) {
           kind: 'error',
           message: lostRace
             ? isGtaQuote(mine, paymentModeRef.current)
-              ? 'Кто-то оплатил раньше. GTA$ не списаны'
-              : 'Кто-то оплатил раньше. Баллы возвращены'
-            : 'Расчёт больше не действителен. Выбери точку заново',
+              ? 'Кто-то оплатил раньше. GTA$ не списаны.'
+              : 'Кто-то оплатил раньше. Баллы возвращены.'
+            : 'Расчёт больше не действителен. Выберите точку заново.',
           code: null,
         });
         refreshRef.current();
@@ -567,11 +615,11 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   const gpsDown = gps !== null && gps.status !== 'ok';
   const closed = waypointsOpen === false;
   const blockedMessage: string | null = closed
-    ? 'Приём точек закрыт'
+    ? CLOSED_MESSAGE
     : active
-      ? 'Сейчас выполняется задание…'
+      ? BUSY_MESSAGE
       : gpsDown
-        ? 'GPS временно недоступен'
+        ? GPS_DOWN_MESSAGE
         : null;
 
   const blockedRef = useRef(blockedMessage);
@@ -603,6 +651,25 @@ export default function App({ forceMobile = false }: AppProps = {}) {
 
   const openTopUp = useCallback(() => setTopUp({ credit: null }), []);
   const closeTopUp = useCallback(() => setTopUp(null), []);
+
+  // --- map insets -----------------------------------------------------------
+  // The card sits on top of the map, so a route is fitted into what it leaves
+  // visible. Measured when the map asks, which is after the card has rendered.
+  const mapWrapRef = useRef<HTMLDivElement | null>(null);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+
+  const measureCardInsets = useCallback((): MapInsets | null => {
+    const wrap = mapWrapRef.current;
+    const cardEl = sheetRef.current?.firstElementChild;
+    if (!wrap || !cardEl) return null;
+    const box = wrap.getBoundingClientRect();
+    const rect = cardEl.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return {
+      left: Math.max(0, rect.right - box.left),
+      bottom: Math.max(0, box.bottom - rect.top),
+    };
+  }, []);
 
   // --- trigger diagnostics --------------------------------------------------
   // Nobody can look at a viewer's player, so the app measures the button this
@@ -714,13 +781,24 @@ export default function App({ forceMobile = false }: AppProps = {}) {
         return;
       }
       if (!isLinked()) {
-        // Sharing an identity is something an anonymous viewer cannot do yet.
-        const code =
-          identityRef.current.kind === 'anonymous' && paymentModeRef.current === 'gta_dollar'
-            ? 'needs_login'
-            : 'needs_id_share';
-        const failure = new ApiFailure(code, 'identity not shared', 403);
-        setCard({ kind: 'error', message: viewerMessage(failure), code });
+        // Browsing is for everyone; a price is only quoted to a viewer the
+        // server can charge. Sharing an identity is something a logged-out
+        // viewer cannot do yet, so they are asked to log in instead.
+        const gta = paymentModeRef.current === 'gta_dollar';
+        const kind = identityRef.current.kind;
+        if (kind === 'unknown') {
+          // onAuthorized has not arrived yet; it usually does within a second.
+          setCard({ kind: 'error', message: 'Twitch ещё подключается. Попробуйте через пару секунд.', code: null });
+        } else if (kind === 'anonymous') {
+          setCard({
+            kind: 'error',
+            message: gta ? LOGIN_PROMPT : 'Войдите в Twitch, чтобы выбрать точку.',
+            code: 'needs_login',
+          });
+        } else {
+          const message = gta ? LINK_PROMPT : viewerMessage(new ApiFailure('needs_id_share', '', 403));
+          setCard({ kind: 'error', message, code: 'needs_id_share' });
+        }
         return;
       }
 
@@ -745,7 +823,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
           if (pickSeqRef.current !== seq) return;
           setCard({
             kind: 'error',
-            message: viewerMessage(err),
+            message: errorText(err, 'quote'),
             code: err instanceof ApiFailure ? err.code : null,
           });
         });
@@ -771,7 +849,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
       .catch((err: unknown) =>
         setCard({
           kind: 'error',
-          message: viewerMessage(err),
+          message: errorText(err, 'confirm'),
           code: err instanceof ApiFailure ? err.code : null,
         }),
       );
@@ -806,7 +884,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
           setCard(
             result.waypointStatus === 'COMPLETED'
               ? { kind: 'completed', name: result.waypoint.destinationName }
-              : { kind: 'error', message: 'Задание отменено', code: null },
+              : { kind: 'error', message: 'Задание отменено.', code: null },
           );
           return;
         }
@@ -817,6 +895,8 @@ export default function App({ forceMobile = false }: AppProps = {}) {
           name: result.waypoint.destinationName,
           waypointId: result.waypoint.id,
           paid: result.cost,
+          // What the server says is left after this purchase, shown as is.
+          balance: typeof result.balance === 'number' ? result.balance : undefined,
         });
       })
       .catch((err: unknown) => {
@@ -825,10 +905,11 @@ export default function App({ forceMobile = false }: AppProps = {}) {
           // No verdict: it may or may not have gone through. Same quote again
           // is safe — the server charges one quote once, and answers a repeat
           // of a purchase that did go through with that same waypoint.
+          // The card adds that a repeat is never charged twice.
           setCard({
             kind: 'quoted',
             quote: pending,
-            notice: 'Нет ответа от сервера. Нажмите ещё раз — GTA$ спишутся только один раз',
+            notice: errorText(err, 'purchase', 'purchase'),
             unsure: true,
           });
           return;
@@ -837,15 +918,15 @@ export default function App({ forceMobile = false }: AppProps = {}) {
           // A verdict: nothing was charged for this quote (a repeat of one that
           // was would have been answered with its waypoint). Back to the quote,
           // which with the re-read balance shows the shortfall and the top-up.
-          setCard({ kind: 'quoted', quote: pending, notice: viewerMessage(err) });
+          setCard({ kind: 'quoted', quote: pending, notice: viewerMessage(err, 'purchase') });
           return;
         }
         if (err.code === 'rate_limited') {
           // Not even looked at: the quote stands exactly as it did before.
-          setCard({ kind: 'quoted', quote: pending, notice: viewerMessage(err), unsure: wasUnsure });
+          setCard({ kind: 'quoted', quote: pending, notice: viewerMessage(err, 'purchase'), unsure: wasUnsure });
           return;
         }
-        setCard({ kind: 'error', message: viewerMessage(err), code: err.code });
+        setCard({ kind: 'error', message: errorText(err, 'purchase', 'purchase'), code: err.code });
       })
       .finally(() => {
         purchasingRef.current = false;
@@ -875,6 +956,9 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   }, [api]);
 
   const handleClose = useCallback(() => {
+    // A quote still being priced belongs to the card being closed: its late
+    // answer must not bring that card back.
+    pickSeqRef.current += 1;
     const pending = quoteOf(cardRef.current);
     if (pending && cardRef.current.kind === 'awaiting') {
       handleCancel();
@@ -886,15 +970,22 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   // --- banners --------------------------------------------------------------
   const banners: Banner[] = [];
   if (authError) banners.push({ text: authError, tone: 'bad' });
-  if (closed) banners.push({ text: 'Приём точек закрыт', tone: 'warn' });
+  if (closed) banners.push({ text: CLOSED_MESSAGE, tone: 'warn' });
   // The map still opens and still shows Phuket without a GPS fix; only buying
   // is blocked, so this says what is missing rather than hiding the map.
-  else if (gpsDown) banners.push({ text: 'GPS стримера временно недоступен', tone: 'warn' });
+  else if (gpsDown) banners.push({ text: GPS_DOWN_MESSAGE, tone: 'warn' });
   // Slots are the legacy Channel Points mechanism; GTA$ purchases never use one.
   if (!gtaMode && slots && slots.total > 0 && slots.free === 0)
-    banners.push({ text: 'Все слоты наград заняты, подожди немного', tone: 'warn' });
+    banners.push({ text: 'Все слоты наград заняты. Попробуйте чуть позже.', tone: 'warn' });
 
-  const remaining = active ? formatDistance(active.remainingDistanceMeters) : null;
+  const remaining =
+    active && active.remainingDistanceMeters !== null ? formatKm(active.remainingDistanceMeters) : null;
+
+  // The exchange terms: the state's economy block, or the wallet's copy of it.
+  const offer: ExchangeOffer | null =
+    economy ?? (wallet ? { ...wallet.exchange, exchangeRate: wallet.exchangeRate } : null);
+
+  const walletBalance = wallet?.balance ?? null;
 
   return (
     <div className="viewer" data-mobile={mobile ? 'true' : 'false'} data-expanded={expanded ? 'true' : 'false'}>
@@ -927,8 +1018,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
             onClick={openMap}
             aria-label="Открыть карту Пхукета"
           >
-            <span className="mapTriggerIcon" aria-hidden="true">🗺</span>
-            <span className="mapTriggerText">Карта</span>
+            <TriggerLabel />
           </button>
 
           {DIAG_BADGE && (
@@ -955,13 +1045,15 @@ export default function App({ forceMobile = false }: AppProps = {}) {
       {!expanded && mobile && (
         <div className="mobileBar panel">
           <div className="mobileBarText">
-            <span className="label">{active ? 'Задание' : 'Waypoint'}</span>
+            <span className="label">{active ? 'Задание' : 'IRL Waypoint'}</span>
             <span className="mobileBarName">
-              {active ? active.destinationName : blockedMessage ?? 'Отправь стримера в точку'}
+              {active
+                ? `${active.destinationName}${remaining ? ` · ${remaining}` : ''}`
+                : blockedMessage ?? 'Отправьте стримера в точку на карте'}
             </span>
           </div>
           <button ref={triggerRef} type="button" className="btn btn-primary mobileBtn" onClick={openMap}>
-            Карта
+            <TriggerLabel />
           </button>
         </div>
       )}
@@ -971,20 +1063,52 @@ export default function App({ forceMobile = false }: AppProps = {}) {
 
       {mounted && (
         <div className={expanded ? 'overlay is-open' : 'overlay'} aria-hidden={!expanded}>
-          <div className="topBar">
-            <button type="button" className="iconBtn" onClick={closeMap} aria-label="Закрыть карту">
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path
-                  d="M6 6l12 12M18 6 6 18"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-              </svg>
+          <div className={gtaMode ? 'topBar topBar--wallet' : 'topBar'}>
+            <button type="button" className="iconBtn topBarClose" onClick={closeMap} aria-label="Закрыть карту">
+              {mobile ? (
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path
+                    d="M15 5 8 12l7 7"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path
+                    d="M6 6l12 12M18 6 6 18"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                </svg>
+              )}
             </button>
             <SearchBox api={api} enabled={auth !== null} onSelect={handleSearchSelect} />
+            {/* The balance lives in the top bar, next to the search and clear of
+                the top-right corner, where Twitch draws its own controls. */}
+            {gtaMode && (
+              <div className="walletSlot">
+                <WalletChip load={walletLoad} balance={walletBalance} onTopUp={openTopUp} onIdShare={requestIdShare} />
+                {topUp && (
+                  <TopUpDialog
+                    offer={offer}
+                    credit={topUp.credit}
+                    load={walletLoad}
+                    balance={walletBalance}
+                    onClose={closeTopUp}
+                  />
+                )}
+              </div>
+            )}
           </div>
+
+          {/* A tap anywhere outside the dialog closes it; on a phone it also dims the map. */}
+          {gtaMode && topUp && <div className="topUpScrim" aria-hidden="true" onClick={closeTopUp} />}
 
           {banners.length > 0 && (
             <div className="banners">
@@ -997,7 +1121,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
             </div>
           )}
 
-          <div className="mapWrap">
+          <div className="mapWrap" ref={mapWrapRef}>
             <MapView
               config={config}
               visible={expanded}
@@ -1005,37 +1129,27 @@ export default function App({ forceMobile = false }: AppProps = {}) {
               routeGeometry={routeGeometry}
               destination={destination}
               focus={focus}
+              fitInsets={measureCardInsets}
               onPick={handlePick}
             />
 
-            {gtaMode && (
-              <div className="walletDock">
-                <WalletChip
-                  load={walletLoad}
-                  balance={wallet?.balance ?? null}
-                  onTopUp={openTopUp}
-                  onIdShare={requestIdShare}
-                />
-                {topUp && (
-                  <TopUpDialog offer={economy ?? wallet?.exchange ?? null} credit={topUp.credit} onClose={closeTopUp} />
-                )}
-                {toast && <WalletToast credit={toast} placement="map" />}
-              </div>
-            )}
-
-            {card.kind === 'idle' && (
+            {card.kind === 'idle' && !(gtaMode && toast) && (
               <div className="hintPill">
-                {active ? `Идёт задание: ${active.destinationName}` : 'Нажми на место на карте или найди его поиском'}
+                {active
+                  ? `Идёт задание: ${active.destinationName}`
+                  : 'Нажмите на место на карте или найдите его поиском'}
               </div>
             )}
 
-            <div className="sheet">
+            {gtaMode && toast && <WalletToast credit={toast} placement="map" />}
+
+            <div className="sheet" ref={sheetRef}>
               <DestinationCard
                 state={card}
                 now={now}
                 blockedMessage={blockedMessage}
                 paymentMode={paymentMode}
-                wallet={{ load: walletLoad, balance: wallet?.balance ?? null }}
+                wallet={{ load: walletLoad, balance: walletBalance }}
                 onConfirm={handleConfirm}
                 onPurchase={handlePurchase}
                 onTopUp={openTopUp}

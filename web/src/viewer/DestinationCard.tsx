@@ -3,20 +3,21 @@
  *
  * Every number shown here is taken verbatim from the server response — the
  * browser never derives a price, a distance or a duration. The one thing it
- * does work out is the GTA$ shortfall, and that only to tell the viewer how
- * much to top up: whether a purchase goes through is decided by the server.
+ * does work out is whether the balance covers the price, and that only to
+ * offer a top-up instead of a button that is bound to fail: whether a
+ * purchase goes through is decided by the server.
  */
 
 import {
   categoryLabel,
+  formatApproxDuration,
   formatCountdown,
-  formatDistance,
-  formatDuration,
   formatGta,
+  formatKm,
   formatPoints,
 } from '../shared/format';
 import type { ApiErrorCode, PaymentMode, QuoteView } from '../shared/types';
-import { LINK_PROMPT } from './Wallet';
+import { INSUFFICIENT_MESSAGE, TOP_UP_LABEL, balanceText } from './Wallet';
 import type { WalletLoad } from './Wallet';
 
 export type CardState =
@@ -34,7 +35,8 @@ export type CardState =
   | { kind: 'awaiting'; quote: QuoteView }
   /** A GTA$ purchase is in flight: one click, one request. */
   | { kind: 'purchasing'; quote: QuoteView }
-  | { kind: 'active'; name: string; waypointId?: string; paid?: number }
+  /** `balance`: what the purchase response said is left, when it was ours. */
+  | { kind: 'active'; name: string; waypointId?: string; paid?: number; balance?: number }
   | { kind: 'completed'; name: string };
 
 export interface CardWallet {
@@ -72,40 +74,67 @@ export function isGtaQuote(quote: QuoteView, paymentMode: PaymentMode | null): b
   return paymentMode === 'gta_dollar';
 }
 
-function Head(props: { label: string; title: string; category?: string | null; onClose: () => void }) {
+/** Codes that are not a failure but a missing Twitch identity. */
+const IDENTITY_CODES: ReadonlySet<ApiErrorCode> = new Set<ApiErrorCode>(['needs_id_share', 'needs_login']);
+
+function CloseButton({ onClose }: { onClose: () => void }) {
+  return (
+    <button type="button" className="cardClose" aria-label="Закрыть" onClick={onClose}>
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      </svg>
+    </button>
+  );
+}
+
+function Head(props: { label?: string; title: string; category?: string | null; onClose: () => void }) {
   const category = categoryLabel(props.category);
   return (
     <div className="cardHead">
       <div className="cardHeadText">
-        <div className="label">{props.label}</div>
+        {props.label && <div className="label">{props.label}</div>}
         <div className="cardTitle">{props.title}</div>
         {category && <div className="cardSub">{category}</div>}
       </div>
-      <button type="button" className="cardClose" aria-label="Закрыть" onClick={props.onClose}>
-        ×
-      </button>
+      <CloseButton onClose={props.onClose} />
     </div>
   );
 }
 
-function Stats(props: { distanceMeters: number; durationSeconds: number; cost: number; costLabel: string }) {
+/** `1.4 км · ~19 мин`, with an icon each so the pair reads without labels. */
+function RouteFacts(props: { distanceMeters: number; durationSeconds: number }) {
   return (
-    <div className="statRow">
-      <div className="stat">
-        <div className="label">Пешком</div>
-        <div className="statValue num">{formatDistance(props.distanceMeters)}</div>
-      </div>
-      <div className="stat">
-        <div className="label">Время</div>
-        <div className="statValue num">{formatDuration(props.durationSeconds)}</div>
-      </div>
-      <div className="stat stat--cost">
-        <div className="label">{props.costLabel}</div>
-        <div className="statValue num">
-          {formatPoints(props.cost)} <span className="statUnit">баллов</span>
-        </div>
-      </div>
+    <div className="routeFacts num">
+      <span className="routeFact">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+          <circle cx="13" cy="4.2" r="2" fill="currentColor" />
+          <path
+            d="M10.4 21l1.7-6.2 2.6 2.4V21M8 12.2l1.6-4.1 3.3-.7 2.4 3.3 2.7 1.1M12.1 14.8l.8-7.4"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </svg>
+        {formatKm(props.distanceMeters)}
+      </span>
+      <span className="routeFact">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeWidth="1.8" fill="none" />
+          <path d="M12 7.6V12l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+        </svg>
+        {formatApproxDuration(props.durationSeconds)}
+      </span>
     </div>
+  );
+}
+
+function Countdown({ msLeft }: { msLeft: number }) {
+  return (
+    <>
+      Цена действует ещё <span className="num cardTimer">{formatCountdown(msLeft)}</span>
+    </>
   );
 }
 
@@ -119,6 +148,7 @@ function GtaQuote(props: {
   wallet: CardWallet;
   onPurchase: () => void;
   onTopUp: () => void;
+  onRequote: () => void;
   onClose: () => void;
 }) {
   const { quote, busy, msLeft, notice, unsure, wallet } = props;
@@ -129,66 +159,64 @@ function GtaQuote(props: {
   // as a reason this quote cannot be bought.
   const pending = busy || unsure;
   const blockedMessage = pending ? null : props.blockedMessage;
-  const shortfall = balance !== null && !pending ? quote.cost - balance : 0;
-  const insufficient = shortfall > 0;
+  const insufficient = balance !== null && !pending && quote.cost > balance;
   // Before the first wallet read there is nothing to compare against; after a
   // failed one the server gets to decide, so the button stays usable.
   const walletPending = balance === null && wallet.load === 'loading';
+  // A dead quote is fixed by pricing the same place again, not by a dead button.
+  const requote = expired && !pending && blockedMessage === null && !insufficient;
 
-  const balanceText = balance !== null ? formatGta(balance) : walletPending ? 'GTA$ …' : formatGta(null);
-
-  // A shortfall already explains a refused purchase, with the exact amount.
-  const foot = blockedMessage ?? (insufficient ? null : notice);
-  const disabled = busy || (!unsure && (expired || blockedMessage !== null || insufficient || walletPending));
+  const disabled = busy || (!unsure && (expired || blockedMessage !== null || walletPending));
+  // A refused purchase leaves "not enough GTA$" on the card; once a top-up
+  // has made the balance cover the price, that notice would contradict the
+  // balance line right above it.
+  const shortfallSettled = notice === INSUFFICIENT_MESSAGE && balance !== null && quote.cost <= balance;
+  const foot = blockedMessage ?? (insufficient || shortfallSettled ? null : notice);
 
   return (
-    <section className="card panel" aria-busy={busy}>
-      <Head label="Точка" title={quote.destinationName} category={quote.destinationCategory} onClose={props.onClose} />
-      <div className="cardMeta num">
-        {formatDistance(quote.distanceMeters)} · {formatDuration(quote.durationSeconds)}
-      </div>
+    <section className="card card--quote panel" aria-busy={busy}>
+      <Head title={quote.destinationName} category={quote.destinationCategory} onClose={props.onClose} />
+      <RouteFacts distanceMeters={quote.distanceMeters} durationSeconds={quote.durationSeconds} />
+
       <div className="gtaPrice">
-        <div className="gtaRow gtaRow--price">
-          <span className="gtaRowLabel">Цена:</span>
-          <span className="gtaRowValue num">{formatGta(quote.cost)}</span>
-        </div>
-        <div className="gtaRow">
-          <span className="gtaRowLabel">Ваш баланс:</span>
-          <span className="gtaRowValue num">{balanceText}</span>
+        <div className="gtaPriceValue num">{formatGta(quote.cost)}</div>
+        <div className={insufficient ? 'gtaBalance gtaBalance--short num' : 'gtaBalance num'}>
+          Ваш баланс: {balanceText(wallet.load, balance)}
         </div>
       </div>
-      <button
-        type="button"
-        className="btn btn-primary cardAction gtaBuy"
-        disabled={disabled}
-        onClick={props.onPurchase}
-      >
-        {busy ? (
-          'Оплачиваем…'
-        ) : (
-          <>
-            ОТПРАВИТЬ СТРИМЕРА — <span className="gtaAmount">{formatGta(quote.cost)}</span>
-          </>
-        )}
-      </button>
-      {insufficient && (
-        <div className="gtaShort">
-          <span className="gtaShortText num">Не хватает {formatGta(shortfall)}</span>
-          <button type="button" className="walletBtn walletBtn--accent" onClick={props.onTopUp}>
-            + ПОПОЛНИТЬ
+
+      {insufficient ? (
+        <>
+          <div className="cardAlert" role="alert">
+            {INSUFFICIENT_MESSAGE}
+          </div>
+          <button type="button" className="btn btn-primary cardAction" onClick={props.onTopUp}>
+            {TOP_UP_LABEL}
           </button>
+        </>
+      ) : requote ? (
+        <button type="button" className="btn btn-primary cardAction" onClick={props.onRequote}>
+          Обновить цену
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn btn-primary cardAction gtaBuy"
+          disabled={disabled}
+          aria-busy={busy}
+          onClick={props.onPurchase}
+        >
+          {busy && <span className="btnSpinner" aria-hidden="true" />}
+          ОТПРАВИТЬ СТРИМЕРА
+        </button>
+      )}
+
+      {!insufficient && (
+        <div className={foot || expired ? 'cardFoot cardFoot--bad' : 'cardFoot'}>
+          {foot ?? (expired ? 'Цена устарела.' : <Countdown msLeft={msLeft} />)}
         </div>
       )}
-      <div className={expired || foot ? 'cardFoot cardFoot--bad' : 'cardFoot'}>
-        {foot ??
-          (expired ? (
-            'Расчёт устарел. Выбери точку заново'
-          ) : (
-            <>
-              Расчёт действует ещё <span className="num cardTimer">{formatCountdown(msLeft)}</span>
-            </>
-          ))}
-      </div>
+      {unsure && !busy && <div className="cardNote">Повторное нажатие не спишет GTA$ дважды.</div>}
     </section>
   );
 }
@@ -199,52 +227,37 @@ export default function DestinationCard(props: DestinationCardProps) {
 
   if (state.kind === 'loading') {
     return (
-      <section className="card panel" aria-busy="true">
+      <section className="card card--quote panel" aria-busy="true">
         <div className="cardHead">
           <div className="cardHeadText">
-            <div className="label">Считаем маршрут</div>
             <div className="cardTitle">{state.name ?? 'Точка на карте'}</div>
+            <div className="cardSub">Считаем маршрут…</div>
           </div>
+          <CloseButton onClose={onClose} />
         </div>
-        <div className="statRow">
-          <div className="stat">
-            <div className="label">Пешком</div>
-            <div className="skel skel--sm" />
-          </div>
-          <div className="stat">
-            <div className="label">Время</div>
-            <div className="skel skel--sm" />
-          </div>
-          <div className="stat stat--cost">
-            <div className="label">Стоимость</div>
-            <div className="skel skel--sm" />
-          </div>
-        </div>
+        <div className="skel skel--sm" />
+        <div className="skel skel--price" />
         <div className="skel skel--btn" />
       </section>
     );
   }
 
   if (state.kind === 'error') {
-    // With GTA$ the identity share is what opens the wallet, so it is asked
-    // for in the same words as the wallet chip.
-    const linkForGta = state.code === 'needs_id_share' && paymentMode === 'gta_dollar';
+    const identity = state.code !== null && IDENTITY_CODES.has(state.code);
     // Codes where the same place, quoted again, is the whole fix.
     const requote = state.code === 'price_changed' || state.code === 'payment_mode' || state.code === 'quote_expired';
     return (
-      <section className="card panel card--bad" role="alert">
+      <section className={identity ? 'card panel' : 'card panel card--bad'} role="alert">
         <div className="cardHead">
           <div className="cardHeadText">
-            <div className="label">Не получилось</div>
-            <div className="cardMessage">{linkForGta ? LINK_PROMPT : state.message}</div>
+            {!identity && <div className="label">Не получилось</div>}
+            <div className="cardMessage">{state.message}</div>
           </div>
-          <button type="button" className="cardClose" aria-label="Закрыть" onClick={onClose}>
-            ×
-          </button>
+          <CloseButton onClose={onClose} />
         </div>
         {state.code === 'needs_id_share' && (
           <button type="button" className="btn btn-primary cardAction" onClick={onIdShare}>
-            {linkForGta ? 'ПОДКЛЮЧИТЬ' : 'Разрешить доступ к аккаунту'}
+            ПОДКЛЮЧИТЬ
           </button>
         )}
         {requote && (
@@ -258,19 +271,36 @@ export default function DestinationCard(props: DestinationCardProps) {
 
   if (state.kind === 'active') {
     return (
-      <section className="card panel card--ok">
-        <Head label="Точка принята" title={state.name} onClose={onClose} />
-        {state.paid !== undefined && <div className="cardMeta num">Оплачено: {formatGta(state.paid)}</div>}
-        <div className="cardNote">Стример уже идёт. Маршрут виден на карте.</div>
+      <section className="card card--ok panel" role="status">
+        <div className="cardHead">
+          <div className="cardHeadText">
+            <div className="cardStatus cardStatus--ok">ТОЧКА ПРИНЯТА</div>
+            <div className="cardTitle">{state.name}</div>
+          </div>
+          <CloseButton onClose={onClose} />
+        </div>
+        {state.balance !== undefined && (
+          <div className="gtaRest num">
+            <span className="gtaRestLabel">Остаток:</span>
+            <span className="gtaRestValue">{formatGta(state.balance)}</span>
+          </div>
+        )}
+        <div className="cardNote">Стример уже в пути. Маршрут — на карте.</div>
       </section>
     );
   }
 
   if (state.kind === 'completed') {
     return (
-      <section className="card panel card--ok">
-        <Head label="Точка достигнута" title={state.name} onClose={onClose} />
-        <div className="cardNote">Задание закрыто. Можно выбирать следующую точку.</div>
+      <section className="card card--ok panel" role="status">
+        <div className="cardHead">
+          <div className="cardHeadText">
+            <div className="cardStatus cardStatus--ok">ТОЧКА ДОСТИГНУТА</div>
+            <div className="cardTitle">{state.name}</div>
+          </div>
+          <CloseButton onClose={onClose} />
+        </div>
+        <div className="cardNote">Задание выполнено. Можно выбирать следующую точку.</div>
       </section>
     );
   }
@@ -291,37 +321,27 @@ export default function DestinationCard(props: DestinationCardProps) {
         wallet={wallet}
         onPurchase={props.onPurchase}
         onTopUp={props.onTopUp}
+        onRequote={props.onRequote}
         onClose={onClose}
       />
     );
   }
 
+  // Legacy Channel Points flow (payment mode `channel_points_reward`).
   if (state.kind === 'awaiting') {
     return (
       <section className="card panel">
-        <Head
-          label="Точка готова"
-          title={quote.destinationName}
-          category={quote.destinationCategory}
-          onClose={onClose}
-        />
-        <Stats
-          distanceMeters={quote.distanceMeters}
-          durationSeconds={quote.durationSeconds}
-          cost={quote.cost}
-          costLabel="Цена"
-        />
+        <Head label="Точка готова" title={quote.destinationName} category={quote.destinationCategory} onClose={onClose} />
+        <RouteFacts distanceMeters={quote.distanceMeters} durationSeconds={quote.durationSeconds} />
         <div className="payBlock">
-          <div className="payHint">Чтобы подтвердить: открой награды за баллы канала Twitch и активируй</div>
+          <div className="payHint">Чтобы подтвердить, откройте награды за баллы канала и активируйте</div>
+          {/* The reward's own title: the only way to find it in Twitch's list. */}
           <div className="reward mono">{quote.rewardTitle ?? `WAYPOINT • ${quote.code}`}</div>
-          <div className="payWhere">
-            Кнопка баллов — рядом с полем ввода чата. Открыть её из расширения нельзя, это делается только
-            руками.
-          </div>
+          <div className="payWhere">Кнопка баллов — рядом с полем ввода чата.</div>
         </div>
         <div className="cardFootRow">
           <span className={expired ? 'cardFoot cardFoot--bad' : 'cardFoot'}>
-            {expired ? 'Время вышло. Выбери точку заново' : 'Ожидаем оплату…'}
+            {expired ? 'Время вышло. Выберите точку заново.' : 'Ожидаем оплату…'}
             {!expired && <span className="num cardTimer">{formatCountdown(msLeft)}</span>}
           </span>
           <button type="button" className="btn btn-ghost btn-danger cardCancel" onClick={onCancel}>
@@ -332,34 +352,29 @@ export default function DestinationCard(props: DestinationCardProps) {
     );
   }
 
-  // Legacy Channel Points flow: 'quoted' | 'confirming'
+  // 'quoted' | 'confirming'
   const busy = state.kind === 'confirming';
   return (
-    <section className="card panel">
-      <Head label="Точка" title={quote.destinationName} category={quote.destinationCategory} onClose={onClose} />
-      <Stats
-        distanceMeters={quote.distanceMeters}
-        durationSeconds={quote.durationSeconds}
-        cost={quote.cost}
-        costLabel="Стоимость"
-      />
+    <section className="card card--quote panel">
+      <Head title={quote.destinationName} category={quote.destinationCategory} onClose={onClose} />
+      <RouteFacts distanceMeters={quote.distanceMeters} durationSeconds={quote.durationSeconds} />
+      <div className="gtaPrice">
+        <div className="gtaPriceValue num">
+          {formatPoints(quote.cost)} <span className="statUnit">баллов</span>
+        </div>
+      </div>
       <button
         type="button"
         className="btn btn-primary cardAction"
         disabled={busy || expired || blockedMessage !== null}
+        aria-busy={busy}
         onClick={onConfirm}
       >
-        {busy ? 'Резервируем…' : 'Отправить стримера сюда'}
+        {busy && <span className="btnSpinner" aria-hidden="true" />}
+        ОТПРАВИТЬ СТРИМЕРА
       </button>
       <div className={expired || blockedMessage ? 'cardFoot cardFoot--bad' : 'cardFoot'}>
-        {blockedMessage ??
-          (expired ? (
-            'Расчёт устарел. Выбери точку заново'
-          ) : (
-            <>
-              Расчёт действует ещё <span className="num cardTimer">{formatCountdown(msLeft)}</span>
-            </>
-          ))}
+        {blockedMessage ?? (expired ? 'Цена устарела. Выберите точку заново.' : <Countdown msLeft={msLeft} />)}
       </div>
     </section>
   );

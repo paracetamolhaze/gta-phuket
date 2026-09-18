@@ -1,15 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { env } from '../../env.js';
+import { query } from '../../db/pool.js';
 import { PHUKET } from '../../domain/geo.js';
 import { getSettings } from '../../domain/settings.js';
 import { getQuote, toQuoteView } from '../../domain/quotes.js';
-import { getGpsState, getPublicGps } from '../../domain/gps.js';
+import { getGpsState, getPublicGps, reviewDemoActive } from '../../domain/gps.js';
 import { countFreeSlots } from '../../domain/slots.js';
+import { paymentMode } from '../../domain/paymentMode.js';
 import { loadBroadcasterTokens } from '../../twitch/tokens.js';
-import { listEventSubSubscriptions } from '../../twitch/helix.js';
+import { getCustomReward, listEventSubSubscriptions } from '../../twitch/helix.js';
+import { REDEMPTION_ADD, eventSubCallbackUrl } from '../../twitch/eventsub.js';
 import { useDevHelix } from '../../twitch/devHelix.js';
-import { getEconomyInfo } from '../../twitch/exchangeReward.js';
+import { getEconomyInfo, getExchangeReward } from '../../twitch/exchangeReward.js';
 import { searchPlaces } from '../../maps/mapbox.js';
 import {
   buildViewerState,
@@ -20,7 +23,7 @@ import {
   purchaseViewerWaypoint,
 } from '../../domain/waypointFlow.js';
 import { buildWalletView } from '../../domain/wallet.js';
-import { AppError } from '../../domain/types.js';
+import { AppError, type BroadcasterStatus } from '../../domain/types.js';
 import { requireExtIdentity, requireLinkedViewer } from '../auth.js';
 import { noteAcceptance } from '../../diag/acceptance.js';
 import { enforceRateLimit } from '../rateLimit.js';
@@ -167,12 +170,12 @@ export async function registerExtRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Status for the Twitch broadcaster Config surface (`config.html`).
    *
-   * Deliberately booleans and counters only. The broadcaster is trusted, but
-   * this response travels to a page Twitch frames, so it carries no token, no
-   * secret, no OAuth material and no coordinates — just enough to answer "is
-   * the thing wired up", with the real controls living in /admin.
+   * Deliberately booleans, counters and public names only. The broadcaster is
+   * trusted, but this response travels to a page Twitch frames, so it carries
+   * no token, no secret, no OAuth material and no coordinates — just enough to
+   * answer "is the thing wired up", with the real controls living in /admin.
    */
-  app.get('/api/ext/broadcaster/status', async (req) => {
+  app.get('/api/ext/broadcaster/status', async (req): Promise<BroadcasterStatus> => {
     const identity = requireExtIdentity(req);
     if (identity.role !== 'broadcaster') {
       throw new AppError('forbidden', 'Эта страница только для владельца канала', 403);
@@ -180,38 +183,120 @@ export async function registerExtRoutes(app: FastifyInstance): Promise<void> {
 
     const channelId = identity.channelId;
     const settings = await getSettings(channelId);
-    const [gps, counts, tokens] = await Promise.all([
+    const [gps, counts, tokens, login, exchangeReward] = await Promise.all([
       getGpsState(channelId, settings),
       countFreeSlots(channelId, settings.rewardSlotPoolSize),
       loadBroadcasterTokens(channelId),
+      channelLogin(channelId),
+      getExchangeReward(channelId),
     ]);
 
-    let eventsubCount = 0;
-    if (tokens || useDevHelix()) {
-      try {
-        eventsubCount = (await listEventSubSubscriptions()).filter(
-          (s) => s.condition.broadcaster_user_id === channelId,
-        ).length;
-      } catch {
-        eventsubCount = -1; // "could not ask Twitch", distinct from "none"
-      }
-    }
+    // Without a broadcaster token (or the local stub) there is nobody to ask,
+    // and nothing on Twitch can be ready yet either.
+    const canAskTwitch = Boolean(tokens) || useDevHelix();
+    const [subs, exchangeRewardEnabled] = await Promise.all([
+      canAskTwitch ? eventSubCounts(channelId) : { all: 0, redemptionAdd: 0 },
+      canAskTwitch && exchangeReward
+        ? exchangeRewardLive(channelId, exchangeReward.twitchRewardId)
+        : false,
+    ]);
+
+    const connected = Boolean(tokens);
+    const eventsubReady = subs.redemptionAdd > 0;
+    const mapboxReady = Boolean(env.MAPBOX_PUBLIC_TOKEN);
+    const exchangeReady = exchangeReward !== null && exchangeRewardEnabled;
+    const demoActive = reviewDemoActive();
 
     return {
       channelId,
       serverTime: Date.now(),
       backend: { ok: true, devMode: env.devModeEnabled },
       twitch: {
-        connected: Boolean(tokens),
+        connected,
+        login: connected ? login : null,
         usingLocalStub: useDevHelix(),
         scopes: tokens?.scopes ?? [],
-        eventsubCount,
+        eventsubCount: subs.all,
       },
-      gps: { status: gps.status, ageMs: gps.ageMs, accuracy: gps.sample?.accuracy ?? null },
+      eventsub: { ready: eventsubReady, count: subs.redemptionAdd },
+      gps: {
+        // The contract knows three states. A fresh fix too inaccurate to price
+        // from is as unusable as an old one, so it reads as stale; `accuracy`
+        // still says why.
+        status: gps.status === 'inaccurate' ? 'stale' : gps.status,
+        ageMs: gps.ageMs,
+        accuracy: gps.sample?.accuracy ?? null,
+        source: gps.source ?? 'live',
+      },
+      reviewDemo: { active: demoActive },
+      mapbox: { ready: mapboxReady },
       mapboxConfigured: Boolean(env.MAPBOX_SERVER_TOKEN || env.MAPBOX_PUBLIC_TOKEN),
+      economy: {
+        paymentMode: paymentMode(),
+        exchangeRate: settings.gtaDollarsPerChannelPoint,
+        exchangeReward: {
+          ready: exchangeReady,
+          title: exchangeReward?.title ?? null,
+          cost: exchangeReward?.cost ?? null,
+        },
+      },
       waypointsOpen: settings.waypointsOpen,
       slots: counts,
-      adminUrl: `${env.PUBLIC_WEB_URL.replace(/\/$/, '')}/admin.html`,
+      // Caddy serves /admin as admin.html.
+      adminUrl: `${env.PUBLIC_WEB_URL.replace(/\/$/, '')}/admin`,
+      ready:
+        connected &&
+        eventsubReady &&
+        mapboxReady &&
+        exchangeReady &&
+        (gps.status === 'ok' || demoActive),
     };
   });
+}
+
+/** The connected broadcaster's Twitch login. Public, stored by the OAuth callback. */
+async function channelLogin(channelId: string): Promise<string | null> {
+  const { rows } = await query<{ login: string | null }>(
+    'SELECT login FROM channels WHERE id = $1',
+    [channelId],
+  );
+  return rows[0]?.login ?? null;
+}
+
+/**
+ * This channel's EventSub subscriptions, from one listing: all of them (the
+ * older counter), and the redemption.add ones that can actually deliver here
+ * (enabled, pointing at this deployment's callback) — without those a GTA$
+ * exchange never reaches the wallet. -1 in both means "could not ask Twitch",
+ * which is not the same as "none".
+ */
+async function eventSubCounts(channelId: string): Promise<{ all: number; redemptionAdd: number }> {
+  try {
+    const callback = eventSubCallbackUrl();
+    const mine = (await listEventSubSubscriptions()).filter(
+      (s) => s.condition.broadcaster_user_id === channelId,
+    );
+    return {
+      all: mine.length,
+      redemptionAdd: mine.filter(
+        (s) =>
+          s.type === REDEMPTION_ADD && s.status === 'enabled' && s.transport.callback === callback,
+      ).length,
+    };
+  } catch {
+    return { all: -1, redemptionAdd: -1 };
+  }
+}
+
+/**
+ * Whether the recorded exchange reward still exists on Twitch and is enabled
+ * there: the broadcaster can switch it off in the dashboard, and then nobody
+ * can buy GTA$. Not being able to ask counts as not ready.
+ */
+async function exchangeRewardLive(channelId: string, rewardId: string): Promise<boolean> {
+  try {
+    return (await getCustomReward(channelId, rewardId))?.is_enabled === true;
+  } catch {
+    return false;
+  }
 }

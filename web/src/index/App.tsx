@@ -15,7 +15,7 @@ export default function App(): JSX.Element {
   return (
     <main className="idx">
       <header className="idx-head">
-        <h1 className="idx-title">GTA PHUKET</h1>
+        <h1 className="idx-title">IRL WAYPOINT</h1>
         <p className="idx-line">
           Зритель тратит баллы канала на точку на карте Пхукета — стример идёт туда пешком, маршрут и остаток пути видны
           в эфире.

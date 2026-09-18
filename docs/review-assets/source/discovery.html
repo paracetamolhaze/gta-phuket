@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+html,body{margin:0;padding:0;width:300px;height:200px;overflow:hidden;background:#07100d}
+svg{display:block}
+text{font-family:'Segoe UI',Arial,sans-serif}
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200">
+  <defs>
+    <radialGradient id="glow" cx="0.27" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#ffc247" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#ffc247" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="300" height="200" fill="#07100d"/>
+  <rect width="300" height="200" fill="url(#glow)"/>
+  <!-- faint street grid -->
+  <g stroke="#ffffff" stroke-opacity="0.06" stroke-width="1.3" fill="none">
+    <path d="M-10 58 L310 16"/>
+    <path d="M-10 128 L310 86"/>
+    <path d="M-10 198 L310 156"/>
+    <path d="M52 -10 L70 210"/>
+    <path d="M150 -10 L168 210"/>
+    <path d="M248 -10 L266 210"/>
+  </g>
+  <!-- walking route -->
+  <path d="M26 158 C 48 158, 42 126, 62 126 S 84 142, 86 118" fill="none" stroke="#45e0c0" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="26" cy="158" r="8.5" fill="#45e0c0"/>
+  <circle cx="26" cy="158" r="3.4" fill="#07100d"/>
+  <!-- waypoint pin -->
+  <g transform="translate(86 72) scale(0.34) translate(-256 -206)">
+    <path d="M256 112c-52 0-94 42-94 94 0 62 78 122 91 131a5 5 0 0 0 6 0c13-9 91-69 91-131 0-52-42-94-94-94z" fill="#ffc247"/>
+    <circle cx="256" cy="206" r="38" fill="#07100d"/>
+  </g>
+  <!-- wordmark -->
+  <text x="130" y="90" font-size="22" font-weight="700" fill="#ffc247" letter-spacing="3">IRL</text>
+  <text x="128" y="124" font-size="34" font-weight="700" fill="#eef4f7" letter-spacing="-0.5">Waypoint</text>
+  <text x="130" y="148" font-size="13" font-weight="600" fill="#9fb0ba">Viewers pick the next stop</text>
+</svg>
+</body></html>

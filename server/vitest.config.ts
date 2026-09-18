@@ -18,6 +18,9 @@ export default defineConfig({
       NODE_ENV: 'test',
       LOG_LEVEL: process.env.LOG_LEVEL ?? 'silent',
       DEV_MODE: 'true',
+      // Off whatever the shell or .env says: the GPS tests need live-GPS behaviour,
+      // and review-demo.test.ts switches the demo on where it wants it.
+      REVIEW_DEMO_MODE: 'false',
       TWITCH_CHANNEL_ID: process.env.TWITCH_CHANNEL_ID ?? '900000001',
       TWITCH_EXT_SECRET: process.env.TWITCH_EXT_SECRET ?? 'dGVzdC1leHRlbnNpb24tc2VjcmV0LTEyMzQ1',
       TWITCH_EVENTSUB_SECRET: process.env.TWITCH_EVENTSUB_SECRET ?? 'test-eventsub-secret-value',

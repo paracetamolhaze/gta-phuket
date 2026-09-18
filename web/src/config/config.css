@@ -22,18 +22,14 @@ body.page-config {
 .cf-head {
   border-bottom: 1px solid var(--hairline);
   padding-bottom: 16px;
-  margin-bottom: 4px;
+  margin-bottom: 16px;
 }
 
-.cf-title {
+.cf-brand {
   margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 750;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.cf-titleAccent {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
   color: var(--accent);
 }
 
@@ -43,6 +39,89 @@ body.page-config {
   line-height: 1.5;
   color: var(--text-dim);
   max-width: 62ch;
+}
+
+/* The review-demo warning outranks everything else on the page: a streamer
+   must never forget that viewers are seeing a demo position. */
+.cf-demo {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-s);
+  background: rgba(255, 194, 71, 0.14);
+  border: 2px solid var(--accent);
+}
+
+.cf-demoTitle {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+.cf-demoText {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.cf-verdict {
+  margin-bottom: 8px;
+  padding: 16px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cf-verdict.is-ready {
+  padding: 20px 16px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+  color: var(--ok);
+  background: rgba(88, 211, 140, 0.1);
+  border-color: rgba(88, 211, 140, 0.45);
+}
+
+.cf-verdict.is-missing {
+  background: rgba(255, 107, 94, 0.08);
+  border-color: rgba(255, 107, 94, 0.35);
+}
+
+.cf-verdictTitle {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--danger);
+}
+
+.cf-missing {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.cf-missing li + li {
+  margin-top: 8px;
+}
+
+.cf-missingOne {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.cf-verdict.is-waiting .cf-missingOne {
+  margin: 0;
+}
+
+.cf-stale {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent);
 }
 
 .cf-rows {
@@ -62,6 +141,14 @@ body.page-config {
   gap: 16px;
 }
 
+.cf-label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
 .cf-value {
   display: inline-flex;
   align-items: center;
@@ -70,6 +157,18 @@ body.page-config {
   font-weight: 650;
   letter-spacing: 0.04em;
   text-align: right;
+}
+
+.cf-value.is-ok {
+  color: var(--ok);
+}
+
+.cf-value.is-bad {
+  color: var(--danger);
+}
+
+.cf-value.is-warn {
+  color: var(--accent);
 }
 
 /* The dot sits on the text baseline rather than its own line box. */
@@ -85,6 +184,10 @@ body.page-config {
   max-width: 62ch;
 }
 
+.cf-row.is-bad .cf-note {
+  color: var(--text-dim);
+}
+
 .cf-foot {
   padding-top: 18px;
 }
@@ -92,10 +195,12 @@ body.page-config {
 .cf-link {
   display: inline-flex;
   margin: 10px 0 12px;
+  text-decoration: none;
 }
 
 .cf-url {
   display: block;
+  margin-top: 6px;
   padding: 9px 12px;
   border-radius: var(--radius-s);
   background: rgba(255, 255, 255, 0.05);
@@ -103,6 +208,19 @@ body.page-config {
   font-size: 12px;
   color: var(--text-dim);
   word-break: break-all;
+}
+
+.cf-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.cf-legal a {
+  color: var(--text-dim);
 }
 
 @media (max-width: 520px) {
@@ -119,5 +237,8 @@ body.page-config {
   }
   .cf-value {
     text-align: left;
+  }
+  .cf-verdict.is-ready {
+    font-size: 20px;
   }
 }

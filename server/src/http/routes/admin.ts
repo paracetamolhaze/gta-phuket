@@ -202,6 +202,13 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         callbackUrl: `${env.PUBLIC_API_URL.replace(/\/$/, '')}/api/eventsub/twitch`,
       },
       devMode: env.devModeEnabled,
+      // While active, `gps` above is the demo fix (source 'review_demo'), and
+      // the admin has to be able to see that the whole channel is on it.
+      reviewDemo: {
+        active: env.reviewDemo.active,
+        lat: env.reviewDemo.lat,
+        lng: env.reviewDemo.lng,
+      },
     };
   });
 

@@ -110,6 +110,7 @@ services:
       - ./web/tsconfig.json:/app/web/tsconfig.json:ro
       - ./web/index.html:/app/web/index.html:ro
       - ./web/privacy.html:/app/web/privacy.html:ro
+      - ./web/terms.html:/app/web/terms.html:ro
       - ./web/video_overlay.html:/app/web/video_overlay.html:ro
       - ./web/mobile.html:/app/web/mobile.html:ro
       - ./web/config.html:/app/web/config.html:ro
@@ -152,6 +153,7 @@ services:
       - ./web/vite.config.ts:/app/web/vite.config.ts:ro
       - ./web/index.html:/app/web/index.html:ro
       - ./web/privacy.html:/app/web/privacy.html:ro
+      - ./web/terms.html:/app/web/terms.html:ro
       - ./web/video_overlay.html:/app/web/video_overlay.html:ro
       - ./web/mobile.html:/app/web/mobile.html:ro
       - ./web/config.html:/app/web/config.html:ro
@@ -224,6 +226,10 @@ services:
       TWITCH_EXT_SECRET: 'dGVzdC1leHRlbnNpb24tc2VjcmV0LTEyMzQ1'
       TWITCH_EVENTSUB_SECRET: 'test-eventsub-secret-0123456789'
       PUBLIC_API_URL: 'https://localhost:8080'
+      # .env may have the review demo switched on for the live api; the suite
+      # needs real GPS behaviour (stale / missing fixes). review-demo.test.ts
+      # turns the flag on itself where it wants it.
+      REVIEW_DEMO_MODE: 'false'
     depends_on:
       postgres:
         condition: service_healthy

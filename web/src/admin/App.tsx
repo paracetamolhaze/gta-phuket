@@ -105,6 +105,8 @@ interface RawAdminState {
   slots?: { total?: number; free?: number; items?: AdminSlotItem[] | null } | null;
   quotes?: AdminQuoteRow[] | null;
   paymentMode?: string | null;
+  /** Demo GPS for Twitch review is on: viewers are not seeing the phone. */
+  reviewDemo?: { active?: boolean } | null;
   oauth?: {
     connected?: boolean;
     scopes?: string[] | null;
@@ -349,6 +351,7 @@ export function App(): JSX.Element {
   const [settings, setSettings] = useState<ChannelSettings | null>(null);
   const [waypointsOpen, setWaypointsOpen] = useState<boolean | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
+  const [reviewDemo, setReviewDemo] = useState(false);
   const [slots, setSlots] = useState<AdminSlotsView>(EMPTY_SLOTS);
   const [quotes, setQuotes] = useState<AdminQuoteRow[]>([]);
   const [oauth, setOauth] = useState<AdminOAuthView>(EMPTY_OAUTH);
@@ -446,6 +449,7 @@ export function App(): JSX.Element {
               ? state.paymentMode
               : null,
           );
+          setReviewDemo(state.reviewDemo?.active === true);
           const rawOauth = state.oauth;
           const rawScopes = rawOauth?.scopes;
           const rawTypes = rawOauth?.eventsub?.types;
@@ -784,6 +788,19 @@ export function App(): JSX.Element {
           </button>
         ))}
       </nav>
+
+      {/* Ahead of every panel and sticky: a demo position left on after the
+          Twitch review would silently replace the streamer's real GPS for
+          every viewer. */}
+      {reviewDemo ? (
+        <div className="ad-demoBanner" role="status">
+          <b>REVIEW DEMO GPS ACTIVE</b>
+          <span>
+            Зрители видят демонстрационную позицию, а не GPS телефона. После проверки Twitch
+            выключите: REVIEW_DEMO_MODE=false.
+          </span>
+        </div>
+      ) : null}
 
       {pollError ? <div className="ad-banner">Опрос состояния: {pollError}</div> : null}
 
