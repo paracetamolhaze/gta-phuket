@@ -162,17 +162,54 @@ literal file names.
 | Field | Value |
 | --- | --- |
 | Extension Review Channel URL | `https://www.twitch.tv/tiktokevelone888` |
-| Walkthrough Guide and Change Log | sections 1, 2, 4 and 5 of TWITCH_REVIEW.md, then: `Full notes, glossary and build instructions: https://github.com/paracetamolhaze/gta-phuket/blob/master/TWITCH_REVIEW.md` (once pushed). Change log: `0.0.1 — first submission.` |
+| Walkthrough Guide and Change Log | the English block in §7.1 below, as it is (it ends with the change log). The full notes it links to are TWITCH_REVIEW.md on GitHub (once pushed). |
 | Human-readable code | Yes. Our code is unminified; vendor libraries are unmodified published builds in their own files (TWITCH_REVIEW.md §8). Source: `https://github.com/paracetamolhaze/gta-phuket` |
-| Test account | Not required. For a purchase test, write to `twitchacc11112@outlook.com` with the test account's login and it gets GTA$ credited (TWITCH_REVIEW.md §5). |
+| Test account | Not required. The Panel works with any account on the offline channel. For a purchase test (live overlay only), write to `twitchacc11112@outlook.com` with the test account's login and it gets GTA$ credited (TWITCH_REVIEW.md §5). |
+
+### 7.1 Walkthrough for the submit form
+
+How the review will actually happen: the review channel is usually
+**offline**, because the developer is not a streamer. The reviewer tests the
+full interface in the **Panel** on the channel page while the channel is
+offline: balance, identity link, top-up instructions, map, search, price, the
+last waypoint and the disabled **СТРИМЕР СЕЙЧАС ОФЛАЙН** button. The video
+overlay shows the same map only while the channel is live.
+`REVIEW_DEMO_MODE` is **on** for the whole review window (fixed Patong Beach
+position), so prices work while the channel is offline.
+
+Paste this into "Walkthrough Guide and Change Log" (2 313 characters, under the
+2 500 limit):
+
+```text
+IRL Waypoint 0.0.1, first submission. Types: Panel, Video - Fullscreen, Mobile, Config. The interface is in Russian; full notes and a glossary: https://github.com/paracetamolhaze/gta-phuket/blob/master/TWITCH_REVIEW.md
+
+The review channel https://www.twitch.tv/tiktokevelone888 is usually OFFLINE (the developer is not a streamer). Please test the full interface in the PANEL on the channel page, below the video; it works while the channel is offline. The backend runs with REVIEW_DEMO_MODE on for the whole review window: the streamer's position is fixed at Patong Beach, Phuket, so routes and prices work at any time.
+
+1. Open the channel page and find the IRL WAYPOINT panel. Its header reads "СТРИМЕР ОФЛАЙН" (streamer offline), from Get Streams called with the helixToken.
+2. Press "ПОДКЛЮЧИТЬ" (connect) and accept Twitch's identity prompt (requestIdShare). The GTA$ wallet belongs to your Twitch user ID. The map works without it.
+3. Balance: "GTA$ 0". "+ ПОПОЛНИТЬ" (top up) only explains how to get GTA$: redeem the channel's Channel Points reward "Обмен ETH на GTA DOLLAR" (500 points = GTA$ 5 000), credited automatically through EventSub. GTA$ are points, not money. No Bits, no real-money purchases.
+4. Search "Jungceylon" or "Bangla Road" in "Куда отправить стримера?" (where should the streamer go?) and pick a result, or click the map.
+5. The panel draws the walking route from Patong Beach and shows the distance, walking time, the price in GTA$ and your balance. Nothing is charged.
+6. The main button is disabled: "СТРИМЕР СЕЙЧАС ОФЛАЙН" (streamer is offline now). The Panel never sells.
+7. "Последняя точка" (last waypoint) shows the latest waypoint and its status.
+
+While the channel is live, the same map opens over the video from the "КАРТА" (map) button just above the minimap in the lower-left corner of the video. Waypoints are bought there with GTA$, and the streamer can refuse one for a full refund. The Mobile view is the same screen. To see the live overlay, or to get GTA$ for a purchase test, email twitchacc11112@outlook.com with your test account's login: we will go live and credit GTA$.
+
+Our code is not minified; vendor libraries are unmodified published builds in their own files. Source: https://github.com/paracetamolhaze/gta-phuket
+
+Change log: 0.0.1 - first submission.
+```
 
 Before pressing **Submit for Review**:
 
-1. The channel is live, and stays live for the review
-   (*"All submitted review channels must be live during the time of review."*
-   — Guidelines & Policies).
-2. The backend runs with `REVIEW_DEMO_MODE=true` (Patong demo GPS), and the
-   config page says the demo is on.
+1. **Offline review channel.** Twitch's Guidelines & Policies, 1.1, say:
+   *"All submitted review channels must be live during the time of review."*
+   This channel is usually offline, so the walkthrough sends the reviewer to
+   the Panel, which works offline, and offers to go live on request. A
+   reviewer may still ask for a live channel under 1.1. Answer that email
+   quickly and go live, with the demo GPS on.
+2. The backend runs with `REVIEW_DEMO_MODE=true` (Patong demo GPS) for the
+   whole review window, and the config page says the demo is on.
 3. The exchange reward «Обмен ETH на GTA DOLLAR» is enabled on the channel
    (config page: Exchange Reward is OK).
 4. `https://gudinigta6.duckdns.org/privacy` and `/terms` open from a phone on
@@ -186,8 +223,8 @@ Before pressing **Submit for Review**:
 | --- | --- | --- | --- | --- |
 | `docs/review-assets/logo-100x100.png` | 100 × 100 | PNG, RGB | 6 028 | Logo Image |
 | `docs/review-assets/discovery-300x200.png` | 300 × 200 | PNG, RGB | 35 427 | Discovery Image |
-| `docs/review-assets/taskbar-24x24.png` | 24 × 24 | PNG, RGBA | — | Taskbar Icon (optional) |
-| `docs/review-assets/screenshot-1024x768.png` | 1024 × 768 | PNG  RGB | 192 170 | Screenshots (the real release bundle  map open  captured with headless Chrome) |
+| `docs/review-assets/taskbar-24x24.png` | 24 × 24 | PNG, RGBA | 1 071 | Taskbar Icon (optional) |
+| `docs/review-assets/screenshot-1024x768.png` | 1024 × 768 | PNG, RGB | 186 627 | Screenshots (the real video overlay with the map open, a route and a destination card, captured with headless Chrome) |
 
 Twitch's requirements: logo *"must be a 100x100 PNG"*, discovery image *"must
 be a 300x200 PNG"*, screenshots *"The minimum (and recommended) image size is

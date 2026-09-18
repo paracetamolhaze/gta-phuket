@@ -18,8 +18,9 @@
      extension. They are not any more: a Video Overlay renders *underneath* the
      Twitch player controls, so a target in the bottom strip is covered by them
      exactly when the viewer has the mouse on the player. The extension now
-     shows its own visible button higher up (--trigger-* in viewer.css), and
-     this rectangle is only about where the minimap is burnt into the video.
+     shows its own visible map button directly above this rectangle, as wide
+     as it and flush with its left edge: viewer.css mirrors these numbers as
+     --mm-left / --mm-width / --mm-top, so change them together.
      ======================================================================== */
   --mm-left: 1.5%;
   --mm-bottom: 4%;

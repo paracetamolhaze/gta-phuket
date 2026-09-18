@@ -17,16 +17,28 @@ body.page-viewer #root {
   overflow: hidden;
   pointer-events: none;
 
-  /* Where the collapsed trigger sits, as a fraction of the player.
-     Deliberately NOT near the bottom edge: a Video Overlay renders underneath
-     the Twitch player controls, so anything in the bottom strip is covered by
-     them whenever the controls are showing — which is exactly when the viewer
-     has the mouse over the player and would be looking for it. */
-  --trigger-left: 3%;
-  --trigger-top: 55%;
+  /* The minimap OBS burns into the video (obs.css --mm-*), as fractions of the
+     frame. The overlay covers the same 16:9 area, so these line up with it.
+     Its top edge is at 100% - 4% - 30% = 66% of the height. */
+  --mm-left: 1.5%;
+  --mm-width: 19.5%;
+  --mm-top: 66%;
 
-  /* Expanded overlay insets. The bottom one keeps the player controls free. */
-  --ov-x: 3%;
+  /* The collapsed HUD is a column standing on the minimap: task pill, map
+     button, then the minimap itself. Sizes follow the player, like the OBS
+     stage does, within limits that keep text readable and targets usable.
+     The whole column stays above the bottom strip, where the Twitch player
+     controls cover anything a Video Overlay draws. */
+  --hud-gap: clamp(5px, 1vh, 16px);
+  --hud-radius: clamp(8px, 1.1vh, 18px);
+  --trigger-h: clamp(34px, 3.9vh, 62px);
+  --task-h: clamp(24px, 2.7vh, 42px);
+  --trigger-bottom: calc(100% - var(--mm-top) + var(--hud-gap));
+  --task-bottom: calc(var(--trigger-bottom) + var(--trigger-h) + var(--hud-gap) * 0.6);
+
+  /* Expanded overlay insets. The sides line up with the minimap's left edge;
+     the bottom one keeps the player controls free. */
+  --ov-x: 1.5%;
   --ov-top: 4%;
   --ov-bottom: 8%;
 }
@@ -35,30 +47,48 @@ body.page-viewer #root {
 
 /* The one element that is always on screen. Everything else about the
    extension can be broken — no GPS, no backend, no identity, no authorization
-   — and this still renders, because it is the only way into the map. */
+   — and this still renders, because it is the only way into the map.
+
+   It is the minimap's own button: exactly as wide as the minimap, flush with
+   its left edge, a small gap above its top edge, in the same dark glass with
+   the same hairline and corner ticks. */
 .mapTrigger {
   position: absolute;
-  left: var(--trigger-left);
-  top: var(--trigger-top);
-  display: inline-flex;
+  left: var(--mm-left);
+  bottom: var(--trigger-bottom);
+  width: var(--mm-width);
+  height: var(--trigger-h);
+  display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 14px 0 12px;
+  justify-content: center;
+  padding: 0 10px;
   /* The only element in the collapsed overlay that takes a click. */
   pointer-events: auto;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
+  border-radius: var(--hud-radius);
+  font-size: clamp(12px, 1.3vh, 20px);
+  font-weight: 700;
+  letter-spacing: 0.17em;
   text-transform: uppercase;
   color: var(--text);
-  background: rgba(5, 9, 12, 0.62);
-  border: 1px solid var(--hairline-strong);
-  backdrop-filter: blur(10px) saturate(1.1);
-  -webkit-backdrop-filter: blur(10px) saturate(1.1);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+  /* Viewfinder corners, drawn as background so they need no extra markup. */
+  --tick-c: var(--hairline-strong);
+  --tick-l: calc(var(--trigger-h) * 0.2);
+  --tick-i: calc(var(--trigger-h) * 0.15);
+  background:
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) top var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) top var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) top var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) top var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) bottom var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) bottom var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) bottom var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) bottom var(--tick-i) / 1px var(--tick-l) no-repeat,
+    var(--glass);
+  border: 1px solid var(--hairline);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 /* "🗺 КАРТА" is one inline run of text; the icon keeps the gap it always had. */
@@ -72,24 +102,48 @@ body.page-viewer #root {
   line-height: 1;
 }
 
-.mapTrigger:hover,
+.mapTrigger .mapTriggerText {
+  /* The letter-spacing trails the last letter; this keeps the label centred. */
+  margin-right: -0.17em;
+}
+
+.mapTrigger .mapTriggerIcon {
+  margin-right: 0.2em;
+  font-size: 1.2em;
+  color: var(--accent);
+}
+
+.mapTrigger:hover {
+  --tick-c: var(--accent);
+  background-color: rgba(12, 20, 26, 0.92);
+  border-color: rgba(255, 194, 71, 0.55);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 194, 71, 0.12);
+}
+
 .mapTrigger:focus-visible {
-  outline: none;
-  background: rgba(5, 9, 12, 0.82);
-  border-color: var(--accent);
+  --tick-c: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: rgba(255, 194, 71, 0.55);
 }
 
 .mapTrigger:active {
   transform: translateY(1px);
+  background-color: rgba(5, 9, 12, 0.95);
 }
 
 /* Twitch highlights the extension when the viewer hovers its icon in the
    player. Louder for that moment, present the rest of the time. */
 .mapTrigger[data-highlighted='true'] {
-  background: var(--accent);
+  --tick-c: rgba(26, 18, 3, 0.45);
+  background-color: var(--accent);
   color: var(--accent-ink);
   border-color: transparent;
-  box-shadow: 0 0 0 4px rgba(255, 194, 71, 0.22), 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 4px rgba(255, 194, 71, 0.22), 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+
+.mapTrigger[data-highlighted='true'] .mapTriggerIcon {
+  color: inherit;
 }
 
 /* ---------------------------------------------------------- local test only */
@@ -98,8 +152,8 @@ body.page-viewer #root {
    iframe. Build-time flag (VITE_DEV_MODE); compiled out of a review build. */
 .diagBadge {
   position: absolute;
-  left: var(--trigger-left);
-  top: calc(var(--trigger-top) + 52px);
+  left: calc(var(--mm-left) + var(--mm-width) + 1%);
+  bottom: var(--trigger-bottom);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -136,23 +190,45 @@ body.page-viewer #root {
    its own stylesheet, public/gtamap-raw.css, so it shows even when this file
    never arrives. */
 
-/* Sits just above the trigger, in the same safe band. */
+/* Sits on the map button, as wide as the minimap: a third row of the same
+   column, never over the minimap. Only a tiny player (under ~970 px wide)
+   lets it run a little past the minimap's right edge, so the name still shows. */
 .taskPill {
   position: absolute;
-  left: var(--trigger-left);
-  top: calc(var(--trigger-top) - 34px);
-  max-width: 38%;
-  display: inline-flex;
+  left: var(--mm-left);
+  bottom: var(--task-bottom);
+  width: max(var(--mm-width), 190px);
+  height: var(--task-h);
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--glass-soft);
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: var(--hud-radius);
+  background: rgba(5, 9, 12, 0.8);
   border: 1px solid var(--hairline);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  font-size: 12px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  font-size: clamp(11px, 1.2vh, 18px);
   pointer-events: none;
+}
+
+/* The waypoint's colour: a job is running. */
+.taskPill::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(255, 194, 71, 0.7);
+}
+
+.taskPill .label {
+  flex: none;
+  font-size: clamp(9px, 0.95vh, 14px);
+  font-weight: 700;
+  color: var(--text-dim);
 }
 
 .taskName {
@@ -163,6 +239,12 @@ body.page-viewer #root {
   font-weight: 600;
 }
 
+.taskPill .taskName {
+  flex: 1 1 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .taskSep {
   flex: none;
   color: var(--text-faint);
@@ -171,6 +253,10 @@ body.page-viewer #root {
 .taskDist {
   flex: none;
   color: var(--accent);
+}
+
+.taskPill .taskDist {
+  font-weight: 700;
 }
 
 /* --------------------------------------------------------------- mobile bar */
@@ -1062,12 +1148,12 @@ body.page-viewer #root {
   max-width: calc(100% - 20px);
 }
 
-/* Collapsed overlay: above the trigger and the task pill that sits on it, so
-   neither moves and neither is covered. */
+/* Collapsed overlay: above the map button and the task pill that sits on it,
+   so neither moves and neither is covered. */
 .walletToast--collapsed {
   position: absolute;
-  left: var(--trigger-left);
-  bottom: calc(100% - var(--trigger-top) + 42px);
+  left: var(--mm-left);
+  bottom: calc(var(--task-bottom) + var(--task-h) + var(--hud-gap) * 0.6);
   max-width: 60%;
 }
 
@@ -1118,6 +1204,520 @@ body.page-viewer #root {
   to {
     background-position: -40% 0;
   }
+}
+
+/* ------------------------------------------------------- opened map (player)
+   On the player the map is the minimap, grown: one frame in the minimap's
+   dark glass, hairline and radius; a strip for the controls (close, search,
+   balance), like the minimap's own strip; the map flush to the frame with a
+   soft vignette and viewfinder corners; the same yellow route, and the same
+   teal arrow and yellow diamond the minimap draws.
+
+   Sizes follow the player a little: --ui is 1px up to an ~880 px tall player
+   and 1.2px from 1080p up, so in fullscreen the controls do not shrink next
+   to the video. Phones and the panel keep their own layout: every rule here
+   is scoped to the desktop overlay. */
+
+.viewer[data-mobile='false'] {
+  --ui: clamp(1px, calc(100vh / 880), 1.2px);
+  --ov-r: calc(18 * var(--ui));
+  --ctl-h: calc(44 * var(--ui));
+  --ctl-r: calc(10 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .overlay {
+  gap: 0;
+  padding: 0;
+  border-radius: var(--ov-r);
+  border: 1px solid var(--hairline);
+  background: rgba(8, 14, 18, 0.9);
+  backdrop-filter: blur(14px) saturate(1.05);
+  -webkit-backdrop-filter: blur(14px) saturate(1.05);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  /* Opens out of the minimap's corner. */
+  transform-origin: 10% 100%;
+  transform: translateY(10px) scale(0.985);
+}
+
+.viewer[data-mobile='false'] .overlay.is-open {
+  transform: none;
+}
+
+/* The strip: close, search, then the balance — left to right. */
+.viewer[data-mobile='false'] .topBar {
+  gap: calc(8 * var(--ui));
+  padding: calc(10 * var(--ui)) calc(12 * var(--ui));
+  border-bottom: 1px solid var(--hairline);
+  border-radius: calc(var(--ov-r) - 1px) calc(var(--ov-r) - 1px) 0 0;
+  background: rgba(5, 9, 12, 0.5);
+}
+
+.viewer[data-mobile='false'] .iconBtn {
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+  border-radius: var(--ctl-r);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.viewer[data-mobile='false'] .iconBtn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 194, 71, 0.55);
+}
+
+.viewer[data-mobile='false'] .iconBtn svg {
+  width: calc(18 * var(--ui));
+  height: calc(18 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .search {
+  max-width: calc(520 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .searchInput {
+  height: var(--ctl-h);
+  padding: 0 var(--ctl-h) 0 calc(40 * var(--ui));
+  border-radius: var(--ctl-r);
+  background: rgba(0, 0, 0, 0.3);
+  font-size: calc(14 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .searchInput:focus {
+  border-color: rgba(255, 194, 71, 0.5);
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.viewer[data-mobile='false'] .searchIcon {
+  left: calc(14 * var(--ui));
+  width: calc(16 * var(--ui));
+  height: calc(16 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .searchClear {
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+  border-radius: var(--ctl-r);
+  font-size: calc(22 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .searchPanel {
+  top: calc(100% + 6 * var(--ui));
+  border-radius: calc(12 * var(--ui));
+  background: rgba(8, 14, 18, 0.97);
+}
+
+.viewer[data-mobile='false'] .searchRow {
+  min-height: calc(48 * var(--ui));
+  padding: calc(8 * var(--ui)) calc(10 * var(--ui));
+  border-radius: calc(var(--ctl-r) - 2px);
+}
+
+.viewer[data-mobile='false'] .searchRowName {
+  font-size: calc(14 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .searchRowMeta {
+  font-size: calc(11 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .searchRowDist,
+.viewer[data-mobile='false'] .searchNote {
+  font-size: calc(12 * var(--ui));
+}
+
+/* The balance sits in the strip like the search next to it: same height,
+   same inset field, no floating shadow. */
+.viewer[data-mobile='false'] .walletChip {
+  min-height: var(--ctl-h);
+  gap: calc(10 * var(--ui));
+  padding: calc(4 * var(--ui)) calc(4 * var(--ui)) calc(4 * var(--ui)) calc(14 * var(--ui));
+  border-radius: var(--ctl-r);
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.viewer[data-mobile='false'] .walletChip--prompt {
+  max-width: calc(340 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .walletChip--note {
+  padding-right: calc(14 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .walletBalance {
+  font-size: calc(15 * var(--ui));
+  letter-spacing: 0.02em;
+}
+
+.viewer[data-mobile='false'] .walletPrompt {
+  font-size: calc(12 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .walletBtn {
+  min-height: calc(var(--ctl-h) - 10 * var(--ui));
+  padding: 0 calc(12 * var(--ui));
+  border-radius: calc(var(--ctl-r) - 3px);
+  font-size: calc(11 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .topUp {
+  top: calc(100% + 8 * var(--ui));
+  width: calc(320 * var(--ui));
+  gap: calc(8 * var(--ui));
+  padding: calc(12 * var(--ui)) calc(14 * var(--ui)) calc(14 * var(--ui));
+  border-radius: calc(14 * var(--ui));
+  background: rgba(8, 14, 18, 0.97);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+}
+
+.viewer[data-mobile='false'] .topUpTitle,
+.viewer[data-mobile='false'] .topUpHint {
+  font-size: calc(12 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .topUpText,
+.viewer[data-mobile='false'] .topUpUnit,
+.viewer[data-mobile='false'] .topUpBalance {
+  font-size: calc(13 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .topUpReward,
+.viewer[data-mobile='false'] .topUpBalanceValue {
+  font-size: calc(15 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .topUpRate {
+  font-size: calc(20 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .topUpClose {
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+}
+
+.viewer[data-mobile='false'] .banners {
+  gap: calc(4 * var(--ui));
+  padding: calc(8 * var(--ui)) calc(12 * var(--ui));
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(5, 9, 12, 0.35);
+}
+
+.viewer[data-mobile='false'] .banner {
+  font-size: calc(12 * var(--ui));
+}
+
+/* The map runs to the frame, like the minimap's does. */
+.viewer[data-mobile='false'] .mapWrap {
+  border: none;
+  border-radius: 0 0 calc(var(--ov-r) - 1px) calc(var(--ov-r) - 1px);
+  background: var(--ink-0);
+}
+
+.viewer[data-mobile='false'] .mapWrap::before,
+.viewer[data-mobile='false'] .mapWrap::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* A soft inner vignette so the map never meets the frame hard. */
+.viewer[data-mobile='false'] .mapWrap::before {
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 calc(36 * var(--ui)) rgba(0, 0, 0, 0.5);
+}
+
+/* Viewfinder corners, as on the minimap. The card covers the bottom-left
+   one exactly. */
+.viewer[data-mobile='false'] .mapWrap::after {
+  --tick-c: rgba(255, 255, 255, 0.26);
+  --tick-l: calc(16 * var(--ui));
+  --tick-i: 0px;
+  inset: calc(12 * var(--ui));
+  background:
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) top var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) top var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) top var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) top var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) bottom var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) bottom var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) bottom var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) bottom var(--tick-i) / 1px var(--tick-l) no-repeat;
+}
+
+/* Mapbox's logo and "i" stand on the corner tick's baseline, just left of it. */
+.viewer[data-mobile='false'] .mapWrap .mapboxgl-ctrl-bottom-right {
+  right: calc(36 * var(--ui));
+  bottom: calc(12 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .mapWrap .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl {
+  margin: 4px 0 0 6px;
+}
+
+/* The minimap's flag, with the waypoint's dot. */
+.viewer[data-mobile='false'] .hintPill {
+  top: calc(14 * var(--ui));
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--ui));
+  width: max-content;
+  padding: calc(7 * var(--ui)) calc(14 * var(--ui)) calc(7 * var(--ui)) calc(12 * var(--ui));
+  background: rgba(5, 9, 12, 0.84);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  font-size: calc(12 * var(--ui));
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.viewer[data-mobile='false'] .hintPill::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(255, 194, 71, 0.65);
+}
+
+.viewer[data-mobile='false'] .walletToast--map {
+  top: calc(12 * var(--ui));
+  left: calc(12 * var(--ui));
+}
+
+/* The streamer: the minimap's teal arrow with its two expanding rings. */
+.viewer[data-mobile='false'] .mapPlayer {
+  width: 50px;
+  height: 50px;
+}
+
+.viewer[data-mobile='false'] .mapPlayer::before {
+  content: '';
+}
+
+.viewer[data-mobile='false'] .mapPlayerHalo,
+.viewer[data-mobile='false'] .mapPlayer::before {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(69, 224, 192, 0.6);
+  background: none;
+  animation: wpRing 2.9s cubic-bezier(0.22, 0.61, 0.35, 1) infinite;
+}
+
+.viewer[data-mobile='false'] .mapPlayer::before {
+  animation-delay: 1.45s;
+}
+
+.viewer[data-mobile='false'] .mapPlayerArrow {
+  z-index: 1;
+  filter: drop-shadow(0 0 7px rgba(69, 224, 192, 0.55)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+}
+
+/* Heading unknown: still dimmer than a live arrow, but findable on the big map. */
+.viewer[data-mobile='false'] .mapPlayerArrow.is-unknown {
+  opacity: 0.8;
+}
+
+.viewer[data-mobile='false'] .mapPlayerArrow svg {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
+
+.viewer[data-mobile='false'] .mapPlayerArrow path {
+  stroke: rgba(5, 9, 12, 0.85);
+  stroke-width: 1.2px;
+  stroke-linejoin: round;
+}
+
+@keyframes wpRing {
+  0% {
+    transform: scale(0.34);
+    opacity: 0.9;
+  }
+  70%,
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* The destination: the minimap's yellow diamond, raised on a short stem over
+   a ground dot that sits exactly on the point. */
+.viewer[data-mobile='false'] .mapPin {
+  width: 28px;
+  height: 40px;
+  filter: none;
+}
+
+.viewer[data-mobile='false'] .mapPin svg {
+  display: none;
+}
+
+.viewer[data-mobile='false'] .mapPin::before,
+.viewer[data-mobile='false'] .mapPin::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+}
+
+.viewer[data-mobile='false'] .mapPin::before {
+  top: 4px;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  background: var(--accent);
+  border: 1.5px solid rgba(5, 9, 12, 0.9);
+  box-shadow: 0 0 14px rgba(255, 194, 71, 0.65), 0 0 0 4px rgba(255, 194, 71, 0.14);
+}
+
+.viewer[data-mobile='false'] .mapPin::after {
+  bottom: -5px;
+  width: 10px;
+  height: 22px;
+  margin-left: -5px;
+  background:
+    radial-gradient(circle closest-side, var(--accent) 0 48%, rgba(5, 9, 12, 0.9) 56% 86%, transparent 94%) center bottom /
+      10px 10px no-repeat,
+    linear-gradient(var(--accent) 0 0) center top / 2px 16px no-repeat,
+    linear-gradient(rgba(5, 9, 12, 0.85) 0 0) center top / 4px 16px no-repeat;
+}
+
+/* The card: a panel of the same family, corners and all. */
+.viewer[data-mobile='false'] .sheet {
+  inset: calc(12 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .card {
+  --tick-c: rgba(255, 255, 255, 0.22);
+  --tick-l: calc(10 * var(--ui));
+  --tick-i: calc(6 * var(--ui));
+  width: min(calc(400 * var(--ui)), 100%);
+  padding: calc(16 * var(--ui));
+  gap: calc(12 * var(--ui));
+  border-radius: calc(14 * var(--ui));
+  background:
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) top var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) top var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) top var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) top var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) bottom var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) left var(--tick-i) bottom var(--tick-i) / 1px var(--tick-l) no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) bottom var(--tick-i) / var(--tick-l) 1px no-repeat,
+    linear-gradient(var(--tick-c) 0 0) right var(--tick-i) bottom var(--tick-i) / 1px var(--tick-l) no-repeat,
+    rgba(8, 14, 18, 0.94);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+}
+
+.viewer[data-mobile='false'] .card--ok {
+  --tick-c: rgba(88, 211, 140, 0.55);
+}
+
+.viewer[data-mobile='false'] .card--bad {
+  --tick-c: rgba(255, 107, 94, 0.5);
+}
+
+.viewer[data-mobile='false'] .cardTitle {
+  font-size: calc(18 * var(--ui));
+}
+
+/* "Кафе": a label, the way the minimap labels things. */
+.viewer[data-mobile='false'] .cardSub {
+  font-size: calc(11 * var(--ui));
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.viewer[data-mobile='false'] .cardMessage,
+.viewer[data-mobile='false'] .cardAlert,
+.viewer[data-mobile='false'] .routeFacts,
+.viewer[data-mobile='false'] .gtaRest {
+  font-size: calc(14 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .cardNote,
+.viewer[data-mobile='false'] .gtaBalance,
+.viewer[data-mobile='false'] .payHint {
+  font-size: calc(13 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .cardFoot,
+.viewer[data-mobile='false'] .cardStatus,
+.viewer[data-mobile='false'] .statUnit {
+  font-size: calc(12 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .cardClose {
+  width: calc(40 * var(--ui));
+  height: calc(40 * var(--ui));
+  margin: calc(-8 * var(--ui)) calc(-8 * var(--ui)) 0 0;
+  border-radius: var(--ctl-r);
+}
+
+.viewer[data-mobile='false'] .cardClose svg,
+.viewer[data-mobile='false'] .routeFact svg {
+  width: calc(16 * var(--ui));
+  height: calc(16 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .routeFacts {
+  gap: calc(6 * var(--ui)) calc(18 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .gtaPrice {
+  padding: calc(10 * var(--ui)) calc(12 * var(--ui));
+  border-radius: var(--ctl-r);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.viewer[data-mobile='false'] .gtaPriceValue {
+  font-size: calc(26 * var(--ui));
+  letter-spacing: 0.01em;
+}
+
+.viewer[data-mobile='false'] .gtaRestValue {
+  font-size: calc(20 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .cardAction {
+  min-height: calc(48 * var(--ui));
+  border-radius: var(--ctl-r);
+  font-size: calc(14 * var(--ui));
+  letter-spacing: 0.12em;
+}
+
+.viewer[data-mobile='false'] .cardStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.viewer[data-mobile='false'] .cardStatus--ok::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px rgba(88, 211, 140, 0.7);
+}
+
+.viewer[data-mobile='false'] .skel--price {
+  height: calc(62 * var(--ui));
+}
+
+.viewer[data-mobile='false'] .skel--btn {
+  height: calc(48 * var(--ui));
 }
 
 /* A small embedded player (down to 640×360): the same card, tighter, so the
@@ -1490,6 +2090,8 @@ body.page-viewer #root {
 
 @media (prefers-reduced-motion: reduce) {
   .mapPlayerHalo,
+  .viewer[data-mobile='false'] .mapPlayerHalo,
+  .viewer[data-mobile='false'] .mapPlayer::before,
   .skel,
   .walletToast,
   .topUp,
@@ -1499,7 +2101,8 @@ body.page-viewer #root {
   .btnSpinner {
     animation-duration: 2.4s;
   }
-  .overlay {
+  .overlay,
+  .viewer[data-mobile='false'] .overlay {
     transform: none;
   }
 }

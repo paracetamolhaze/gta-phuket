@@ -1,0 +1,40 @@
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Something that reads as a dark, busy video frame: a night street with a few
+   warm and cold light sources, not a flat colour that flatters any UI. */
+.video {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(38% 30% at 72% 34%, rgba(255, 170, 80, 0.28), transparent 70%),
+    radial-gradient(22% 18% at 30% 22%, rgba(120, 190, 255, 0.18), transparent 70%),
+    radial-gradient(30% 26% at 55% 78%, rgba(255, 90, 120, 0.12), transparent 70%),
+    linear-gradient(180deg, #1c2733 0%, #121a22 45%, #0b0f13 70%, #1a1712 100%);
+}
+
+.video[data-bg='day'] {
+  background:
+    radial-gradient(40% 30% at 70% 20%, rgba(255, 255, 240, 0.55), transparent 70%),
+    linear-gradient(180deg, #8fb8d8 0%, #b9cfd9 40%, #7d8a7a 62%, #5a5448 100%);
+}
+
+.layer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+}
+
+#obs {
+  pointer-events: none;
+}

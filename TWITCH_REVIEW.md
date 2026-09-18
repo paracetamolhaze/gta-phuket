@@ -6,8 +6,8 @@
 | Version | 0.0.1 (first submission) |
 | Client ID | `wjbmbxr2p39zcwwyybk3lt40zsks5x` |
 | Author | Paracetamol |
-| Review channel | https://www.twitch.tv/tiktokevelone888 (channel id 119989080) |
-| Types | Video - Fullscreen (`video_overlay.html`), Mobile (`mobile.html`), Config (`config.html`) |
+| Review channel | https://www.twitch.tv/tiktokevelone888 (channel id 119989080). Usually **offline**: please review in the **Panel** (section 2, part A) |
+| Types | Panel (`panel.html`, height 496), Video - Fullscreen (`video_overlay.html`), Mobile (`mobile.html`), Config (`config.html`) |
 | Backend | https://gudinigta6.duckdns.org |
 | Contact | twitchacc11112@outlook.com |
 | Source | https://github.com/paracetamolhaze/gta-phuket |
@@ -46,61 +46,109 @@ and the viewer gets all the GTA$ back automatically.
 
 ## 2. Walkthrough
 
-1. **Open the review channel:** https://www.twitch.tv/tiktokevelone888.
-   The channel is live for the whole review. Twitch only draws video overlay
-   extensions over a live stream, so if you find the channel offline you will
-   see Twitch's offline page and no map button. In that case please write to
-   twitchacc11112@outlook.com and we will go live.
+**How this review works.** The review channel,
+https://www.twitch.tv/tiktokevelone888, is usually **offline**: the developer
+is not a streamer. Twitch draws Video - Fullscreen extensions only over a live
+stream, but it shows a **Panel** on the channel page all the time. So the
+whole interface can be tested in the Panel while the channel is offline:
+identity link, GTA$ balance, top-up instructions, map, search, walking route,
+price, and the last waypoint. The backend runs with `REVIEW_DEMO_MODE=true` for
+the whole review window, so the streamer's position is fixed at Patong Beach
+and prices work at any time of day (section 4). The Panel never sells. Buying
+happens on the video overlay, which shows the same map, but only while the
+channel is live (part B).
 
-2. **Click "🗺 КАРТА" (MAP).** It is a small dark pill button on the left edge
-   of the video, a little below the middle. While the map is closed the
-   extension draws nothing else, apart from a small task label while a
-   waypoint is running. The map opens over the video; the **×** at the top
-   left closes it (so does Esc).
-   *On the Twitch mobile app* the same button sits in a bar at the bottom of
-   the extension: "IRL Waypoint · Отправьте стримера в точку на карте" and
-   "🗺 КАРТА".
+### A. Panel, channel offline (the main path)
 
-3. **Share your Twitch identity.** The top right of the map says
-   «Подключите Twitch, чтобы использовать GTA$» ("Connect Twitch to use GTA$")
-   with a **ПОДКЛЮЧИТЬ** ("CONNECT") button. It calls
-   `Twitch.ext.actions.requestIdShare()`; Twitch shows its own permission
+1. **Open the Panel.** Go to https://www.twitch.tv/tiktokevelone888 and scroll
+   below the video to the **IRL WAYPOINT** panel. Its header reads
+   **СТРИМЕР ОФЛАЙН** ("STREAMER OFFLINE"). The status comes from Twitch's Get
+   Streams, called with the extension's helixToken. For a moment it may read
+   **ПРОВЕРЯЕМ ЭФИР…** ("CHECKING THE STREAM…").
+
+2. **Share your Twitch identity.** Under the header the panel says
+   «Подключите Twitch, чтобы использовать GTA$» ("Connect Twitch to use GTA$"),
+   with a **ПОДКЛЮЧИТЬ** ("CONNECT") button. The button calls
+   `Twitch.ext.actions.requestIdShare()`, and Twitch shows its own permission
    prompt. After you accept, the button turns into your balance.
    Logged-out viewers see «Войдите в Twitch, чтобы использовать GTA$»
    ("Log in to Twitch to use GTA$") and can still look at the map.
 
-4. **See the GTA$ balance.** Top right: `GTA$ 0` and **+ ПОПОЛНИТЬ**
-   ("+ TOP UP"). TOP UP opens a small panel, «ПОПОЛНЕНИЕ GTA$» ("TOP UP GTA$"),
-   which explains the exchange: the reward «Обмен ETH на GTA DOLLAR»,
-   `500 ETH → GTA$ 5 000`, `1 ETH = 10 GTA$`, and where Twitch keeps channel
-   rewards. It does not open anything itself; an extension cannot open Twitch's
-   Rewards menu.
+3. **See the GTA$ balance and the top-up instructions.** The panel shows
+   `GTA$ 0` and **+ ПОПОЛНИТЬ** ("+ TOP UP"). TOP UP opens a small window,
+   «ПОПОЛНЕНИЕ GTA$» ("TOP UP GTA$"), which explains the exchange: the Channel
+   Points reward «Обмен ETH на GTA DOLLAR», `500 ETH → GTA$ 5 000`,
+   `1 ETH = 10 GTA$`, and where Twitch keeps channel rewards. The window does
+   not open anything itself: an extension cannot open Twitch's Rewards menu.
+   How the reward credits GTA$ is described in B.3.
 
-5. **Pick a destination in Phuket.** Type in the search box
+4. **Pick a destination in Phuket.** Before you pick one, the panel reads
+   «Выберите точку на карте или найдите её поиском.» ("Pick a point on the map
+   or find it with search."). Type in the search box
    «Куда отправить стримера?» ("Where should the streamer go?"), for example
-   `Patong Beach`, `Jungceylon` or `Bangla Road`, and choose a result. Or click
-   anywhere on the map. Places outside Phuket are refused with
+   `Jungceylon`, `Bangla Road` or `Patong Beach`, and choose a result. Or
+   click anywhere on the map. Places outside Phuket are refused with
    «Эта точка вне Пхукета.» ("This place is outside Phuket.").
 
-6. **See distance and price.** A card opens with the place name, the walking
-   distance (for example `1.4 км` = 1.4 km), the walking time (`~19 мин` =
-   about 19 min), the price (for example `GTA$ 1 500`) and
-   «Ваш баланс: GTA$ …» ("Your balance"). The walking route is drawn on the
-   map. The price is held for about a minute: «Цена действует ещё 59 с»
-   ("Price valid for another 59 s"); after that one click refreshes it.
+5. **See the route and the price.** First the panel reads
+   «Считаем маршрут до «…»…» ("Calculating the route to …"). Then a card shows
+   the place name, the walking distance and time (for example
+   `0.8 км · ~9 мин` = 0.8 km, about 9 min), the price (for example
+   `GTA$ 900`) and «Ваш баланс: GTA$ …» ("Your balance"). The walking route
+   from the demo position is drawn on the map. Nothing is charged.
 
-7. **Get GTA$ with Channel Points.** In Twitch's chat, open the Channel Points
+6. **The disabled button.** Under the price is **СТРИМЕР СЕЙЧАС ОФЛАЙН**
+   ("STREAMER IS OFFLINE NOW"), greyed out and disabled. Nothing can be bought
+   in the Panel. While the channel is live the button reads
+   **ОТКРЫТЬ КАРТУ НА СТРИМЕ** ("OPEN THE MAP ON THE STREAM"). It still does
+   not sell anything. It only shows a hint that points to the map button on
+   the video.
+
+7. **The last waypoint.** The bottom of the panel reads «Последняя точка»
+   ("Last waypoint"). It shows the place, the distance, the status and when it
+   happened. The status is **выполняется** (in progress), **стример дошёл**
+   (the streamer arrived) or **отменена** (cancelled). The time reads, for
+   example, `только что` (just now) or `5 мин назад` (5 min ago). Before the
+   first waypoint it reads «Точек ещё не было.» ("No waypoints yet.").
+
+### B. Video overlay (only while the channel is live)
+
+Twitch draws the overlay only over a live stream. When the channel is offline
+you will see Twitch's offline page and no map button. To test the overlay or a
+purchase, write to twitchacc11112@outlook.com and we will go live for you. The
+demo GPS stays on.
+
+1. **Click "🗺 КАРТА" (MAP).** The stream shows a small map of the streamer's
+   position in the lower-left corner of the video. The button is a dark bar
+   directly above that map, exactly as wide as it. It sits well above Twitch's
+   player controls. While the map is closed, the extension draws nothing else.
+   The one exception is a small label while a waypoint is running:
+   «Задание · <place> · <distance left>» ("Task"), just above the button. The
+   map opens over the video. The **×** at the top left closes it, and so does
+   Esc.
+   *On the Twitch mobile app* the same button sits in a bar at the bottom of
+   the extension: "IRL Waypoint · Отправьте стримера в точку на карте" and
+   "🗺 КАРТА".
+
+2. **The same steps as the Panel.** The strip along the top of the map holds
+   the close button, the search box and the balance, with **ПОДКЛЮЧИТЬ** or
+   **+ ПОПОЛНИТЬ**. Identity, balance, top-up, search, route and price work
+   exactly as in A.2 to A.5. The card opens in the lower left of the map. The
+   price is held for about a minute: «Цена действует ещё 59 с» ("Price valid
+   for another 59 s"). After that, one click refreshes it.
+
+3. **Get GTA$ with Channel Points.** In Twitch's chat, open the Channel Points
    menu (the button next to the chat input) and redeem
    **«Обмен ETH на GTA DOLLAR»** (500 channel points). Twitch sends the
    redemption to our backend through EventSub
    (`channel.channel_points_custom_reward_redemption.add`, HMAC-verified). The
    backend adds GTA$ 5 000 to the wallet of the Twitch user who redeemed and
-   marks the redemption FULFILLED. Within a second or two the overlay shows
-   `+ GTA$ 5 000` and the new balance.
-   A test account usually has fewer than 500 channel points on this channel;
-   see section 5 to get GTA$ without them.
+   marks the redemption FULFILLED. Within a second or two the overlay (and
+   the Panel) shows `+ GTA$ 5 000` and the new balance.
+   A test account usually has fewer than 500 channel points on this channel.
+   See section 5 to get GTA$ without them.
 
-8. **Buy the waypoint.** Press **ОТПРАВИТЬ СТРИМЕРА** ("SEND THE STREAMER").
+4. **Buy the waypoint.** Press **ОТПРАВИТЬ СТРИМЕРА** ("SEND THE STREAMER").
    The price is taken from the balance in one step and the card turns into
    **ТОЧКА ПРИНЯТА** ("WAYPOINT ACCEPTED") with «Остаток: GTA$ …»
    ("Remaining"). The route stays on the map for everyone, and the collapsed
@@ -111,24 +159,14 @@ and the viewer gets all the GTA$ back automatically.
    * arrives → **ТОЧКА ДОСТИГНУТА** ("WAYPOINT REACHED") for the buyer;
    * **НЕ МОГУ** ("CAN'T") or **НЕБЕЗОПАСНО** ("UNSAFE") → the waypoint is
      cancelled and the full price goes back to the buyer, shown as
-     «Возврат за задание» ("Refund for the task") `+ GTA$ 1 500`.
+     «Возврат за задание» ("Refund for the task") `+ GTA$ 900`.
 
    One waypoint runs at a time. While one is active, others see
    «Сейчас выполняется задание.» ("A task is in progress.").
 
-**Panel** (`panel.html`, on the channel page under the video — also when the
-channel is **offline**): the same GTA$ wallet and Twitch identity. It shows the
-balance with **+ ПОПОЛНИТЬ** (the same top-up instructions), **ПОДКЛЮЧИТЬ** to
-share identity, the map of Phuket with search, a price for a picked place, the
-last waypoint («Последняя точка»), and the stream status: **СТРИМЕР ОФЛАЙН**
-("STREAMER OFFLINE") or **В ЭФИРЕ** ("LIVE"), read from Twitch's Get Streams
-with the extension's helixToken. The Panel never sells: while offline its main
-button is disabled, **СТРИМЕР СЕЙЧАС ОФЛАЙН** ("STREAMER IS OFFLINE NOW"), and
-nothing is charged; while live it reads **ОТКРЫТЬ КАРТУ НА СТРИМЕ** ("OPEN THE
-MAP ON THE STREAM") and points to the video overlay, where waypoints are bought.
-So the main interface can be reviewed even when the channel is offline.
+### C. Config page
 
-**Config page** (`config.html`, broadcaster only): a read-only status page —
+`config.html` is for the broadcaster only. It is a read-only status page:
 backend, Twitch connection, EventSub, GPS, exchange reward, exchange rate,
 payment mode, and a link to the owner's admin panel. Viewers never see it.
 
@@ -204,6 +242,21 @@ Everything a viewer can meet, in the order of the walkthrough.
 | Что-то пошло не так. Попробуйте ещё раз. | Something went wrong. Try again. |
 | Ресторан, Кафе, Бар, Пляж, Отель, Парк, Магазин, Торговый центр, Музей, Достопримечательность, Место, Адрес | Restaurant, Cafe, Bar, Beach, Hotel, Park, Shop, Shopping mall, Museum, Sight, Place, Address (place categories) |
 
+Panel only (`panel.html`):
+
+| On screen | English |
+| --- | --- |
+| IRL WAYPOINT | the extension's name (panel header) |
+| СТРИМЕР ОФЛАЙН / В ЭФИРЕ / ПРОВЕРЯЕМ ЭФИР… | STREAMER OFFLINE / LIVE / CHECKING THE STREAM… |
+| Выберите точку на карте или найдите её поиском. | Pick a point on the map or find it with search. |
+| Считаем маршрут до «…»… | Calculating the route to "…"… |
+| СТРИМЕР СЕЙЧАС ОФЛАЙН | STREAMER IS OFFLINE NOW (the disabled main button) |
+| ОТКРЫТЬ КАРТУ НА СТРИМЕ | OPEN THE MAP ON THE STREAM (the main button while live) |
+| Точка отправляется на видео: нажмите «🗺 КАРТА» у левого края плеера и выберите это место там. | Waypoints are sent from the video: press «🗺 MAP» at the left edge of the player and choose this place there. |
+| Последняя точка / Точек ещё не было. | Last waypoint / No waypoints yet. |
+| выполняется / стример дошёл / отменена | in progress / the streamer arrived / cancelled |
+| только что / 5 мин назад / 2 ч назад | just now / 5 min ago / 2 h ago |
+
 Streamer phone page (not part of the extension, for context):
 **ЗАВЕРШИТЬ** = COMPLETE, **НЕ МОГУ** = CAN'T, **НЕБЕЗОПАСНО** = UNSAFE.
 
@@ -222,19 +275,25 @@ A real walk cannot be scheduled around a review, so the backend runs with
 fixed at **Patong Beach** (7.8961 N, 98.2958 E) and is always fresh, so routes
 and prices work at any time of day and do not depend on the streamer walking.
 The demo position is the same for every viewer of the channel; the config page
-says the demo is on. It is switched off when the review is over.
+says the demo is on. The demo is on for the whole review window, whether the
+channel is live or offline, so the Panel can price places on an offline
+channel too. It is switched off when the review is over.
 
 ---
 
 ## 5. Test accounts and GTA$
 
-* No special account is needed: any Twitch account can open the map, share its
-  identity, search, see routes and prices.
-* To test a purchase you need GTA$. The normal way is step 7 (500 channel
-  points), but a new account rarely has 500 points on this channel. Write to
-  **twitchacc11112@outlook.com** with the Twitch login of your test account and
-  the owner will credit it with GTA$ through the admin ledger adjustment
-  (it is recorded in the wallet ledger like any other change).
+* No special account is needed: any Twitch account can open the Panel (or,
+  while the channel is live, the overlay), share its identity, search, and see
+  routes and prices.
+* To test a purchase you need GTA$ and a live channel, because purchases
+  happen only on the video overlay. The normal way to get GTA$ is step B.3
+  (500 channel points), but a new account rarely has 500 points on this
+  channel. Write to **twitchacc11112@outlook.com** with the Twitch login of
+  your test account and the owner will credit it with GTA$ through the admin
+  ledger adjustment (it is recorded in the wallet ledger like any other
+  change). The new balance shows in the Panel too. Say so if you also want
+  the channel live for a purchase test.
 
 ---
 

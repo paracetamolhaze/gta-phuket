@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UI harness player</title>
+    <!--
+      Local stand-in for a Twitch player, for tools/ui-shots only.
+      Bottom to top: a video-like backdrop, the real OBS HUD (obs.html, the
+      minimap the streamer burns into the video) and the extension's
+      video_overlay.html, both covering the same 16:9 area — so the overlay's
+      button can be judged against the minimap it belongs to.
+      ?harnessViewer=linked|poor|unlinked|anon  ?bg=night|day  ?obs=0 (no minimap)
+    -->
+    <link rel="stylesheet" href="./harness-player.css" />
+  </head>
+  <body>
+    <div class="video" id="video"></div>
+    <iframe class="layer" id="obs" title="OBS HUD" tabindex="-1"></iframe>
+    <iframe class="layer" id="ext" title="Extension overlay"></iframe>
+    <script src="./harness-player.js"></script>
+  </body>
+</html>

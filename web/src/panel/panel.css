@@ -201,3 +201,16 @@ body.page-panel {
 .pnLastWhen {
   color: var(--text-dim);
 }
+
+/* Live, after ОТКРЫТЬ КАРТУ НА СТРИМЕ: the quote grows by the three-line hint.
+   Only in that state the last waypoint keeps to one line and the map may give
+   way a little further, so the panel still fits 318x496 without scrolling. */
+.pn:has(.pnQuote .pnHintText) .pnMap {
+  min-height: 40px;
+}
+
+.pn:has(.pnQuote .pnHintText) .pnLastBody {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

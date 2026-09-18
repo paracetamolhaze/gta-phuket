@@ -17,3 +17,7 @@ certs/*
 *.crt
 *.p12
 *.pfx
+
+# UI screenshot harness (tools/ui-shots): scratch build, Chrome profiles and
+# screenshots. Dev-only, never part of the extension zip.
+tools/ui-shots/out/
