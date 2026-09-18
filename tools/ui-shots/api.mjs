@@ -106,6 +106,8 @@ export async function ensureRunning() {
     '-e', `ADMIN_SESSION_SECRET=${ADMIN_SECRET}`,
     '-e', 'STREAMER_DEVICE_SECRET=ui-harness-pair',
     '-e', `PUBLIC_WEB_URL=${API_BASE}`,
+    // Optional: try another Mapbox style without touching .env (UI_MAP_STYLE=mapbox://styles/...).
+    ...(process.env.UI_MAP_STYLE ? ['-e', `MAPBOX_STYLE_URL=${process.env.UI_MAP_STYLE}`] : []),
     'test', 'sh', '-c', 'npm run migrate -w server && npx tsx server/src/index.ts',
   ]);
   if (!(await waitHealthy(120_000))) {

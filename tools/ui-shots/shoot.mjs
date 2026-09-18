@@ -510,6 +510,13 @@ async function overlayGroup(ctx) {
     await sleep(SETTLE_MS);
     await record(page, '05-quote-card-1280x720.png', `quote card for the first "${search}" result, route on the map`);
 
+    // The Twitch store screenshot: 4:3, exactly 1024x768, same state.
+    await page.size({ width: 1024, height: 768 });
+    await sleep(TILE_WAIT_MS);
+    await record(page, '05b-quote-card-1024x768.png', 'quote card at 1024x768 for the Twitch store screenshot');
+    await page.size({ width: 1280, height: 720 });
+    await sleep(SETTLE_MS);
+
     await page.eval(click('.walletChip .walletBtn--accent'));
     await page.waitFor(`!!${q('.topUp')}`, 'the top-up dialog');
     await sleep(800);

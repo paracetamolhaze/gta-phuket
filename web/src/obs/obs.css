@@ -445,3 +445,33 @@ body.page-obs {
   left: var(--mm-left);
   bottom: calc(var(--mm-bottom) + var(--mm-height) + 8px);
 }
+
+/* --------------------------------------------------------------------------
+   Strip over the map (proposal): the strip no longer takes its own band under
+   the map. It floats over the bottom of the map on a fading gradient, so the
+   map fills the whole frame; idle it shrinks to a small translucent pill.
+   -------------------------------------------------------------------------- */
+
+.obs-minimap .obs-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  flex: none;
+  height: auto;
+  min-height: 0;
+  padding: 26px 15px 12px;
+  border-top: 0;
+  background: linear-gradient(to top, rgba(5, 9, 12, 0.82) 0%, rgba(5, 9, 12, 0.55) 55%, rgba(5, 9, 12, 0) 100%);
+}
+
+.obs-minimap .obs-strip:has(.obs-strip__idle) {
+  left: 12px;
+  right: auto;
+  bottom: 12px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: rgba(5, 9, 12, 0.6);
+}

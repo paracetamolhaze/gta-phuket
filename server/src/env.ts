@@ -59,6 +59,8 @@ const schema = z.object({
   /** Server token used for Directions/Geocoding. Never sent to a browser. */
   MAPBOX_SERVER_TOKEN: z.string().default(''),
   MAPBOX_STYLE_URL: z.string().default('mapbox://styles/mapbox/dark-v11'),
+  /** The OBS minimap's own style; empty = MAPBOX_STYLE_URL. Dark reads best burned into the video. */
+  OBS_MAPBOX_STYLE_URL: z.string().default(''),
 
   // --- Auth -----------------------------------------------------------------
   /** HMAC key for streamer-device and admin session tokens. */

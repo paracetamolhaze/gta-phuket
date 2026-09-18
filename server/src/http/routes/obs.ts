@@ -27,7 +27,7 @@ export async function registerObsRoutes(app: FastifyInstance): Promise<void> {
     const { token } = req.query as { token?: string };
     return {
       mapboxToken: env.MAPBOX_PUBLIC_TOKEN,
-      styleUrl: env.MAPBOX_STYLE_URL,
+      styleUrl: env.OBS_MAPBOX_STYLE_URL || env.MAPBOX_STYLE_URL,
       channelId: channel(),
       bounds: PHUKET,
       trusted: isObsToken(token),
