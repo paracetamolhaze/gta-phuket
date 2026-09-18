@@ -75,7 +75,7 @@ The interface is in Russian. Sharing your Twitch identity is needed only for the
 | Video - Fullscreen View Path | `video_overlay.html` |
 | Mobile View Path | `mobile.html` |
 | Panel Viewer Path | `panel.html` |
-| Panel Height | `500` (px, Twitch's maximum; the panel is 318 px wide) |
+| Panel Height | `496` (px; the panel is 318 px wide and fits 318 × 496 without scrolling) |
 | Config Path | `config.html` |
 | Live Config Path | *(empty)* |
 

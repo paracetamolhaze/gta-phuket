@@ -1,4 +1,4 @@
-/* Twitch Panel: 318 px wide, up to 500 px tall, on the channel page.
+/* Twitch Panel: 318 px wide, 496 px tall (console Panel Height), on the channel page.
    viewer.css is imported for the wallet chip and top-up dialog; its
    click-through rules are meant for the video overlay and are undone here. */
 
@@ -88,8 +88,10 @@ body.page-panel {
 
 .pnMap {
   position: relative;
-  flex: 0 0 200px;
-  min-height: 200px;
+  /* 200 px when there is room; the map gives way to the destination card so
+     the panel never scrolls inside Twitch's 318x496 frame. */
+  flex: 1 1 200px;
+  min-height: 64px;
   border-radius: var(--radius-m);
   overflow: hidden;
   border: 1px solid var(--hairline);
@@ -102,6 +104,15 @@ body.page-panel {
 
 .pnCard {
   min-height: 44px;
+}
+
+/* Only the map yields space; everything else keeps its natural height. */
+.pnHead,
+.pnWallet,
+.pnSearch,
+.pnCard,
+.pnLast {
+  flex-shrink: 0;
 }
 
 .pnHintText {
