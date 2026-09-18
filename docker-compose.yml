@@ -16,6 +16,12 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+    # The long-running services all come back by themselves when Docker starts
+    # (after a reboot or a Docker Desktop restart), with no `compose up` from
+    # anyone. The daemon does not wait for depends_on then, which is fine: the
+    # API waits for the database itself and exits to be restarted if it cannot
+    # get it. A deliberate `docker compose stop` is still respected.
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -27,6 +33,7 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
 
   api:
     build:
@@ -46,6 +53,11 @@ services:
       # ingress below), both on Docker/loopback ranges. Anything arriving from
       # elsewhere cannot forge its IP past this.
       TRUST_PROXY: ${TRUST_PROXY:-127.0.0.1/8,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
+      # The ingress access log (Caddyfile, `apiingest`) and the dev server
+      # stream their request lines here, so /admin can show every time Twitch
+      # asked for the extension pages. Private Docker network only: this port
+      # is deliberately absent from `ports` below.
+      EXT_LOG_INGEST_PORT: 5140
     # Loopback only: the public entry point is the ingress, not this.
     ports:
       - '127.0.0.1:4000:4000'
@@ -62,6 +74,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
 
   # Vite dev server over HTTPS on 8080, for local work and for Twitch Local Test
   # against https://localhost:8080. Loopback only — a dev server serves /@fs and
@@ -82,6 +95,9 @@ services:
       VITE_API_BASE: ${VITE_API_BASE:-}
       VITE_PUBLIC_ORIGIN: ${PUBLIC_WEB_URL:-https://localhost:8080}
       VITE_PRIVACY_CONTACT: ${PRIVACY_CONTACT:-напишите владельцу канала в личные сообщения Twitch}
+      # Same request log as the ingress, for Twitch Local Test pointed at
+      # https://localhost:8080 instead of the public hostname.
+      EXT_LOG_INGEST: api:5140
     ports:
       - '127.0.0.1:8080:8080'
     depends_on:
@@ -103,9 +119,12 @@ services:
       - ./web/dev.html:/app/web/dev.html:ro
       - ./.env:/app/.env:ro
       - ./certs:/app/certs:ro
+    restart: unless-stopped
 
   # One-shot: produces the bundle the public hostname serves. Runs on every
   # `docker compose up`, so the public pages never lag behind the source.
+  # A plain Docker restart does not run it again; the ingress then keeps
+  # serving the last bundle from the webdist volume, which is what we want.
   # PUBLIC_BUILD drops dev.html from the output.
   webbuild:
     build:
@@ -149,6 +168,12 @@ services:
   # deploy/gudini-caddy-snippet.caddy.
   ingress:
     image: caddy:2-alpine
+    # --watch: an edited Caddyfile applies by itself. `caddy reload` cannot do
+    # it here, because the Caddyfile turns the admin endpoint off; --watch
+    # reloads in-process without it, and a broken edit is only logged while
+    # the running config stays. (Without it, a Caddyfile change needed
+    # `docker compose up -d --force-recreate ingress`, which nobody remembers.)
+    command: ['caddy', 'run', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile', '--watch']
     depends_on:
       api:
         condition: service_healthy

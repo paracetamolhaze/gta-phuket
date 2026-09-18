@@ -136,6 +136,40 @@ async function main() {
         });
       }
 
+      // The diagnostics boot script comes straight after the helper, as a
+      // classic script from our own origin: it registers the helper callbacks
+      // and reports everything that happens after it, so nothing of ours may
+      // run before it — and a module would run after the whole document.
+      const scripts = [...text.matchAll(/<script\b[^>]*>/gi)];
+      const second = scripts[1];
+      const secondSrc = second && /\ssrc="([^"]+)"/i.exec(second[0]);
+      if (
+        !second ||
+        !secondSrc ||
+        !/^\.\/gtamap-boot\.js(?:\?[^"#]*)?$/.test(secondSrc[1] ?? '') ||
+        /\stype="module"/i.test(second[0])
+      ) {
+        findings.push({
+          rel,
+          rule: 'boot-not-second',
+          message: 'the second <script> must be the classic ./gtamap-boot.js',
+          line: second ? text.slice(0, second.index).split('\n').length : 0,
+        });
+      }
+
+      // Every relative reference has to be in the zip, including the files
+      // that come from public/ rather than from the Vite manifest.
+      for (const m of text.matchAll(/\s(?:src|href)="\.\/([^"]*)"/g)) {
+        const ref = (m[1] ?? '').replace(/[?#].*$/, '');
+        if (!ref || files.includes(join(stage, ref))) continue;
+        findings.push({
+          rel,
+          rule: 'missing-file',
+          message: `references ./${ref}, which is not in the bundle`,
+          line: text.slice(0, m.index).split('\n').length,
+        });
+      }
+
       for (const m of text.matchAll(/<script[^>]*\ssrc="([^"]+)"/gi)) {
         const src = m[1] ?? '';
         if (!/^https?:\/\//i.test(src)) continue;
@@ -173,7 +207,7 @@ async function main() {
 
   console.log(
     `CSP check passed: ${scanned} file(s), no blob workers, no eval, ` +
-      `no inline scripts, Mapbox CSP worker present.`,
+      `no inline scripts, helper first and boot script second, Mapbox CSP worker present.`,
   );
 }
 

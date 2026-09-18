@@ -14,6 +14,7 @@ import type {
   SlotStatus,
 } from '../shared/types';
 
+import { ExtDiagnosticsPanel } from './ExtDiagnosticsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { StatusPanel } from './StatusPanel';
 
@@ -744,6 +745,11 @@ export function App(): JSX.Element {
           />
         </div>
       </main>
+
+      {/* Full width: its two tables are wide, and it polls on its own cadence. */}
+      <div className="ad-wide">
+        <ExtDiagnosticsPanel api={api} onAuthError={handleAuthError} />
+      </div>
 
       {confirming && confirmAction ? (
         <ConfirmDialog

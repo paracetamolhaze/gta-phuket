@@ -36,9 +36,19 @@ import {
   onDiagnostics,
   onError as onExtError,
   onHighlightChanged,
+  onVisibilityChanged,
   requestIdShare,
   type ExtDiagnostics,
 } from './twitch';
+import {
+  diagEvent,
+  diagPageOnScreen,
+  isSmokeTest,
+  measureTrigger,
+  setDiagSnap,
+  triggerMoved,
+  type TriggerInfo,
+} from './diag';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -108,9 +118,17 @@ interface Banner {
  * Both are build-time flags and both must be off for review: the badge and the
  * smoke button exist to answer "did the extension load at all", which is not a
  * question a viewer should ever see being asked.
+ *
+ * With SMOKE_TEST the smoke button is not React's: it is raw markup in
+ * video_overlay.html (`#gtamap-raw-trigger`, see twitchPages() in
+ * vite.config.ts), on screen before any script of ours runs. The app only
+ * adopts it and turns it into a second way into the map.
  */
 const DIAG_BADGE = (import.meta.env.VITE_DEV_MODE as string | undefined) === 'true';
-const SMOKE_TEST = (import.meta.env.VITE_SMOKE_TEST as string | undefined) === 'true';
+const SMOKE_TEST = isSmokeTest();
+
+/** When the trigger is measured again after mount, in ms. */
+const TRIGGER_RECHECK_MS = [1000, 3000, 10000, 30000];
 
 /**
  * A Twitch extension iframe can report a width of 0 before the player has laid
@@ -367,12 +385,105 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   const now = useNow(countdownRunning);
 
   // --- actions --------------------------------------------------------------
-  const openMap = useCallback(() => {
+  const openMapVia = useCallback((via: 'react' | 'raw') => {
     setMounted(true);
     setExpanded(true);
+    diagEvent('map_opened', { via });
   }, []);
 
+  const openMap = useCallback(() => openMapVia('react'), [openMapVia]);
+
   const closeMap = useCallback(() => setExpanded(false), []);
+
+  // --- trigger diagnostics --------------------------------------------------
+  // Nobody can look at a viewer's player, so the app measures the button this
+  // layout actually rendered and tells the backend: once after mount
+  // (trigger_rendered), then only when it appears, disappears, moves or
+  // resizes (trigger_check) — plus once more the first time the page is
+  // actually on screen, because the backend only trusts a measurement taken
+  // then, and a page opened in a background tab has not had one.
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const reportedTriggerRef = useRef<TriggerInfo | null>(null);
+  const reportedOnScreenRef = useRef(false);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+
+  const checkTrigger = useCallback(() => {
+    // While the map is open the trigger is gone on purpose; that is not a fault.
+    if (expandedRef.current) return;
+    const info = measureTrigger(triggerRef.current, 'react');
+    setDiagSnap({ triggerVisible: info.visible });
+    const firstOnScreen = !reportedOnScreenRef.current && diagPageOnScreen();
+    if (firstOnScreen) reportedOnScreenRef.current = true;
+    const reported = reportedTriggerRef.current;
+    if (!reported) {
+      reportedTriggerRef.current = info;
+      diagEvent('trigger_rendered', { trigger: info });
+    } else if (firstOnScreen || triggerMoved(reported, info)) {
+      reportedTriggerRef.current = info;
+      diagEvent('trigger_check', { trigger: info });
+    }
+  }, []);
+
+  // After mount, after the map closes, and whenever the layout swaps buttons.
+  useEffect(() => {
+    if (!expanded) checkTrigger();
+  }, [expanded, mobile, checkTrigger]);
+
+  useEffect(() => {
+    const timers = TRIGGER_RECHECK_MS.map((ms) => window.setTimeout(checkTrigger, ms));
+    // Resizes, Twitch hiding/showing the extension, and the tab coming to the
+    // front: measure once React has re-rendered and the frame has settled,
+    // not in the middle of it.
+    let settle = 0;
+    const recheck = (): void => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(checkTrigger, 150);
+    };
+    window.addEventListener('resize', recheck);
+    document.addEventListener('visibilitychange', recheck);
+    const offVisibility = onVisibilityChanged(recheck);
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+      window.clearTimeout(settle);
+      window.removeEventListener('resize', recheck);
+      document.removeEventListener('visibilitychange', recheck);
+      offVisibility();
+    };
+  }, [checkTrigger]);
+
+  // --- SMOKE_TEST raw button ------------------------------------------------
+  // Adopt the raw HTML button instead of rendering one: if it was visible and
+  // stops being the map button, the app broke it; if it never showed at all,
+  // Twitch never showed the iframe. Idempotent, because StrictMode runs this
+  // twice in dev and the element outlives React.
+  const rawUpgradedRef = useRef(false);
+
+  useEffect(() => {
+    if (!SMOKE_TEST) return;
+    const raw = document.getElementById('gtamap-raw-trigger');
+    if (!raw) return;
+    raw.textContent = '🗺 КАРТА';
+    raw.dataset.state = 'react';
+    raw.setAttribute('aria-label', 'Открыть карту Пхукета');
+    // viewer.css makes the whole page click-through; gtamap-raw.css (or the
+    // boot script's fallback) restores clicks on this button. Restated here,
+    // through CSSOM, so a map button can never be one that clicks fall through.
+    raw.style.pointerEvents = 'auto';
+    const onRawClick = (): void => openMapVia('raw');
+    raw.addEventListener('click', onRawClick);
+    if (!rawUpgradedRef.current) {
+      rawUpgradedRef.current = true;
+      diagEvent('raw_button_upgraded', { trigger: measureTrigger(raw, 'raw') });
+    }
+    return () => raw.removeEventListener('click', onRawClick);
+  }, [openMapVia]);
+
+  useEffect(() => {
+    if (!SMOKE_TEST) return;
+    const raw = document.getElementById('gtamap-raw-trigger');
+    if (raw) raw.hidden = expanded;
+  }, [expanded]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -503,6 +614,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
             thing, and they are explained inside the map once it is open.
           */}
           <button
+            ref={triggerRef}
             type="button"
             className="mapTrigger"
             data-highlighted={highlighted ? 'true' : 'false'}
@@ -531,18 +643,6 @@ export default function App({ forceMobile = false }: AppProps = {}) {
               {diag.lastError && <span className="diagBadgeErr">{diag.lastError}</span>}
             </div>
           )}
-
-          {SMOKE_TEST && (
-            /*
-              Deliberately impossible to miss. If this is not on the player, the
-              problem is before React: the iframe never loaded, the bundle never
-              ran, or CSS/player controls hid it. If it IS there but the map
-              stays empty, the problem is the API or the map instead.
-            */
-            <button type="button" className="smokeBtn" onClick={openMap}>
-              EXTENSION WORKS — OPEN MAP
-            </button>
-          )}
         </>
       )}
 
@@ -554,7 +654,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
               {active ? active.destinationName : blockedMessage ?? 'Отправь стримера в точку'}
             </span>
           </div>
-          <button type="button" className="btn btn-primary mobileBtn" onClick={openMap}>
+          <button ref={triggerRef} type="button" className="btn btn-primary mobileBtn" onClick={openMap}>
             Карта
           </button>
         </div>

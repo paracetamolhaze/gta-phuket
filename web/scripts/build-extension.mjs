@@ -114,6 +114,34 @@ async function main() {
     await writeFile(join(stage, entry), html, 'utf8');
   }
 
+  // Files the HTML references that are not Vite output: the diagnostics boot
+  // script and the SMOKE_TEST stylesheet live in public/ and land in the dist
+  // root as-is, so the manifest knows nothing about them. A page that loads
+  // ./gtamap-boot.js from a zip without it would report nothing at all.
+  const extra = new Set();
+  for (const entry of ENTRIES) {
+    const html = await readFile(join(dist, entry), 'utf8');
+    for (const m of html.matchAll(/\s(?:src|href)="\.\/([^"]*)"/g)) {
+      const ref = (m[1] ?? '').replace(/[?#].*$/, '');
+      if (!ref || ref.startsWith('assets/')) continue;
+      if (ref.split('/').includes('..')) {
+        console.error(`${entry} references ./${ref}, which points outside the bundle.`);
+        process.exit(1);
+      }
+      const from = join(dist, ref);
+      if (!(await exists(from))) {
+        console.error(`${entry} references ./${ref}, but dist/${ref} does not exist.`);
+        process.exit(1);
+      }
+      extra.add(ref);
+    }
+  }
+  for (const ref of extra) {
+    const to = join(stage, ref);
+    await mkdir(dirname(to), { recursive: true });
+    await cp(join(dist, ref), to);
+  }
+
   await rm(zipPath, { force: true });
 
   // No zip dependency: use whatever the platform provides.
@@ -142,7 +170,7 @@ async function main() {
   const size = (await stat(zipPath)).size;
   console.log(
     `\nTwitch extension bundle: ${relative(process.cwd(), zipPath)} ` +
-      `(${(size / 1024 / 1024).toFixed(2)} MB, ${files.size + ENTRIES.length} files)`,
+      `(${(size / 1024 / 1024).toFixed(2)} MB, ${files.size + ENTRIES.length + extra.size} files)`,
   );
   console.log('  Video - Fullscreen Path : video_overlay.html');
   console.log('  Mobile Path             : mobile.html');

@@ -647,6 +647,7 @@ Redis: живой GPS и буфер задержки, кэш настроек и
 
 | Симптом | Причина |
 | --- | --- |
+| Кнопки **🗺 КАРТА** нет на плеере Twitch | причину называет вердикт в `/admin.html` → **TWITCH EXTENSION DIAGNOSTICS**, DevTools не нужны; коды и режим `SMOKE_TEST` — [TWITCH_SETUP.md §10](TWITCH_SETUP.md#10-диагностика-без-devtools) |
 | `mapbox: missing` в `/api/health` | не задан `MAPBOX_SERVER_TOKEN` |
 | Карта серая | не задан `VITE_MAPBOX_PUBLIC_TOKEN` на сборке, или токен ограничен по URL |
 | `needs_id_share` | не включён Request Identity Link в Extension |

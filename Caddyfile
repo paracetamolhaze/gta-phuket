@@ -25,6 +25,17 @@
 	# No ACME here — the outer Caddy owns the certificate.
 	auto_https off
 	admin off
+	# Every request reaches this Caddy from the outer one, via the Docker
+	# gateway (a private address). Trusting private ranges makes the proxy
+	# below append to the outer Caddy's X-Forwarded-For — which holds the real
+	# viewer's IP, and which the outer Caddy never takes from a client —
+	# instead of replacing it with the gateway's. The API (TRUST_PROXY, same
+	# ranges) then keys its per-IP rate limits (diagnostics, admin login,
+	# pairing, OAuth start) on each viewer, not on one shared address for the
+	# whole internet. Only 127.0.0.1 can reach :8081 directly.
+	servers {
+		trusted_proxies static private_ranges
+	}
 	log {
 		output stdout
 		format console
@@ -42,20 +53,63 @@
 
 	# ------------------------------------------------------------ access log
 	# Answers "did Twitch even request the page": every request is logged with
-	# its Referer and Sec-Fetch-Dest. Anything that could carry a secret is
-	# removed first — extension JWTs travel in Authorization, and the OBS
-	# browser-source URL carries ?token=.
-	log {
-		output stdout
+	# its Referer and Sec-Fetch-Dest, to two places. Anything that could carry
+	# a secret is removed first, identically in both — extension JWTs travel in
+	# Authorization, the OBS browser-source URL carries ?token=, and the OAuth
+	# callback carries a one-time ?code=. The Referer loses its whole query:
+	# every same-origin request the OBS page makes (bundle, /api/obs/config,
+	# socket.io) carries that page's full URL there, token included.
+	#
+	#   apiingest  newline-delimited JSON over TCP to the API on the private
+	#              Docker network (api:5140, never published). The API keeps
+	#              only the Twitch pages and the bundle they pull in, cut down
+	#              to a whitelist of fields, and /admin shows them under
+	#              TWITCH EXTENSION DIAGNOSTICS — so "did Twitch load the
+	#              overlay" is answered without anyone opening DevTools.
+	#   access     stdout, i.e. `docker compose logs ingress`, as before.
+	#
+	# soft_start: the API being down or restarting must never take the
+	# extension down with it. Caddy starts and serves regardless; lines it
+	# cannot deliver go to its own stderr (already redacted), and it redials
+	# at most every 10 s. Losing a line or two around an API restart is fine —
+	# this is diagnostics, not an audit trail. The request whose line triggers
+	# a redial waits for it, so dial_timeout is kept short: that is the worst
+	# case, once per 10 s, and only while the API is actually gone.
+	log apiingest {
+		output net api:5140 {
+			dial_timeout 2s
+			soft_start
+		}
 		format filter {
 			request>headers>Authorization delete
 			request>headers>Cookie delete
+			request>headers>Referer regexp [?].*$ ?REDACTED
 			request>uri query {
 				replace token REDACTED
+				replace code REDACTED
 			}
 			wrap json
 		}
 	}
+	# Declared last on purpose: the last named logger becomes the site's
+	# fallback, so anything that somehow skips log_name still lands on stdout.
+	log access {
+		output stdout
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+			request>headers>Referer regexp [?].*$ ?REDACTED
+			request>uri query {
+				replace token REDACTED
+				replace code REDACTED
+			}
+			wrap json
+		}
+	}
+	# Named loggers only receive the requests routed to them, so this sends
+	# every request to both. Keep it the only log_name in this site: a later
+	# one would replace this list for the requests it matches, not extend it.
+	log_name access apiingest
 
 	# ------------------------------------------------------- framing (Twitch)
 	# The three Twitch surfaces are framed by Twitch and must stay framable by

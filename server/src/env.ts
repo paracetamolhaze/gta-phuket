@@ -64,6 +64,13 @@ const schema = z.object({
   TRUST_PROXY: z.string().default('false'),
 
   /**
+   * TCP port for the extension request log: newline-delimited access-log JSON
+   * from the ingress Caddy and the Vite dev server. Private Docker network
+   * only — compose must never publish it. 0 switches it off.
+   */
+  EXT_LOG_INGEST_PORT: z.coerce.number().int().min(0).max(65535).default(5140),
+
+  /**
    * Switches the whole Twitch side from the local stub to the real thing.
    *
    * DEV_MODE stays what it is — the simulator, the fake extension tokens, the

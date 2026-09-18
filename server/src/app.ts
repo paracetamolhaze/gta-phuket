@@ -12,6 +12,7 @@ import { registerObsRoutes } from './http/routes/obs.js';
 import { registerOAuthRoutes } from './http/routes/oauth.js';
 import { registerEventSubRoutes } from './http/routes/eventsub.js';
 import { registerDevRoutes } from './http/routes/dev.js';
+import { registerDiagRoutes } from './http/routes/diag.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -112,6 +113,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerOAuthRoutes(app);
   await registerEventSubRoutes(app);
   await registerDevRoutes(app);
+  await registerDiagRoutes(app);
 
   return app;
 }

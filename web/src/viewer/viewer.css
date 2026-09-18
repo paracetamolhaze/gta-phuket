@@ -126,26 +126,9 @@ body.page-viewer #root {
   white-space: normal;
 }
 
-/* Impossible to miss on purpose: if this is not on the player, the problem is
-   before React. Build-time flag; off for review. */
-.smokeBtn {
-  position: absolute;
-  left: 50%;
-  top: 22%;
-  transform: translateX(-50%);
-  pointer-events: auto;
-  padding: 14px 22px;
-  border-radius: var(--radius-m);
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 15px;
-  font-weight: 750;
-  letter-spacing: 0.06em;
-  border: none;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-}
-
-
+/* The SMOKE_TEST button is not styled here: it is raw markup in the HTML with
+   its own stylesheet, public/gtamap-raw.css, so it shows even when this file
+   never arrives. */
 
 /* Sits just above the trigger, in the same safe band. */
 .taskPill {

@@ -1,0 +1,71 @@
+/* SMOKE_TEST only: the raw "EXTENSION LOADED" button on video_overlay.html.
+
+   The button is plain markup in the HTML, ahead of React, Mapbox, the API and
+   onAuthorized, and this stylesheet is the only thing it depends on. If Twitch
+   loaded the iframe at all, this is on screen. Once React is up it adopts the
+   button (data-state="react") and it becomes the map button.
+
+   Self-contained on purpose: no custom properties, no fonts, nothing from
+   theme.css or viewer.css, which may never arrive. Selectors are a class, so
+   they outrank the element-level `button {}` reset in theme.css when that does
+   load, and pointer-events is restated because viewer.css turns it off for the
+   whole page so clicks fall through to the player. */
+
+.gtamap-raw-trigger {
+  position: fixed;
+  left: 10%;
+  top: 25%;
+  z-index: 2147483000;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 240px;
+  min-height: 72px;
+  margin: 0;
+  padding: 0 28px;
+  pointer-events: auto;
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  font: 800 22px/1.1 system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #ffd400;
+  background: #000;
+  border: 4px solid #ffd400;
+  border-radius: 12px;
+  /* The outer black ring keeps the yellow edge readable over bright video. */
+  box-shadow: 0 0 0 3px #000, 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+.gtamap-raw-trigger:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+/* React hides it while the map is open. */
+.gtamap-raw-trigger[hidden] {
+  display: none !important;
+}
+
+/* Adopted by React: now it is the map button. Same place, same size class,
+   inverted so it reads as a button rather than a status label. */
+.gtamap-raw-trigger[data-state='react'] {
+  color: #000;
+  background: #ffd400;
+  border-color: #000;
+  letter-spacing: 0.08em;
+}
+
+.gtamap-raw-trigger[data-state='react']:hover {
+  background: #ffe24d;
+}
+
+.gtamap-raw-trigger[data-state='react']:active {
+  transform: translateY(1px);
+}

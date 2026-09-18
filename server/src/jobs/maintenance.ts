@@ -8,12 +8,16 @@ import { query } from '../db/pool.js';
 import { getSlot, releaseSlot } from '../domain/slots.js';
 import { pruneEventSubEvents, retryPendingEvents } from '../twitch/eventsub.js';
 import { broadcastGpsStale } from '../realtime/gpsBroadcast.js';
+import { pruneExtDiagnostics } from '../diag/store.js';
 
 const QUOTE_SWEEP_MS = 5000;
 const EVENT_RETRY_MS = 15_000;
 const GPS_WATCH_MS = 5000;
 const SLOT_REAP_MS = 30_000;
 const RETENTION_MS = 60 * 60 * 1000;
+// Far more often than the hourly sweep: the diagnostics endpoint is open to
+// anyone, so its row cap has to hold between sweeps, not just once an hour.
+const DIAG_PRUNE_MS = 5 * 60 * 1000;
 
 let timers: NodeJS.Timeout[] = [];
 let lastGpsHealthy = true;
@@ -98,6 +102,17 @@ export function startMaintenanceJobs(channelId: string): void {
         if (gps || events) logger.info({ gps, events }, 'retention sweep');
       })().catch((err) => logger.debug({ err }, 'retention sweep failed'));
     }, RETENTION_MS),
+  );
+
+  // Extension diagnostics and the extension request log: 7 days, 5000 rows each.
+  timers.push(
+    setInterval(() => {
+      void pruneExtDiagnostics()
+        .then(({ events, requests }) => {
+          if (events || requests) logger.info({ events, requests }, 'extension diagnostics pruned');
+        })
+        .catch((err) => logger.debug({ err }, 'extension diagnostics prune failed'));
+    }, DIAG_PRUNE_MS),
   );
 
   for (const t of timers) t.unref?.();

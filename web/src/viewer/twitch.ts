@@ -6,9 +6,24 @@
  * is therefore always the real thing and is always used. The dev fallback (the
  * local /dev player simulator) takes over only when the helper is absent, or in
  * a DEV_MODE build that was explicitly asked for it — see isDevFallback().
+ *
+ * The helper keeps ONE listener per callback: onAuthorized, onContext,
+ * onVisibilityChanged, onHighlightChanged and onError each drop the previous
+ * listener before adding the new one. The boot script (public/gtamap-boot.js)
+ * registers them first, for diagnostics, so whenever it did, this module
+ * subscribes through its fan-out instead of calling the helper — calling it
+ * would unhook the boot script. See start().
  */
 
 import { ApiClient } from '../shared/api';
+import {
+  bootBridge,
+  diagChannelId,
+  diagEvent,
+  diagViewerKind,
+  markAppLoaded,
+  setDiagSnap,
+} from './diag';
 
 // ---------------------------------------------------------------------------
 // window.Twitch typings (declared here on purpose — no @types package)
@@ -142,10 +157,14 @@ function emitAuth(auth: ExtAuth): void {
   publishDiagnostics();
 }
 
+/** A short, safe description of a helper or fallback error. */
+function errorMessage(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err ?? 'unknown error')).slice(0, 200);
+}
+
 function emitError(err: unknown): void {
   // Keep only a short, safe description: this is surfaced in the UI and logged.
-  lastError = err instanceof Error ? err.message : String(err ?? 'unknown error');
-  lastError = lastError.slice(0, 200);
+  lastError = errorMessage(err);
   // eslint-disable-next-line no-console
   console.warn(`[GTAMAP] extension error: ${lastError}`);
   for (const cb of errorListeners) cb(err);
@@ -355,6 +374,70 @@ export function logDiagnostics(reason: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Helper callbacks
+//
+// One handler per callback, whichever way it arrives: through the boot
+// script's fan-out, or registered on the helper directly when there is no
+// boot script.
+// ---------------------------------------------------------------------------
+
+function handleAuthorized(auth: ExtAuth): void {
+  // Ids and a presence flag only — never auth.token or auth.helixToken.
+  // eslint-disable-next-line no-console
+  console.log('[GTAMAP] authorized', {
+    channelId: auth.channelId,
+    clientId: auth.clientId,
+    userIdPresent: !!auth.userId,
+  });
+  emitAuth(auth);
+}
+
+function handleContext(ctx: Partial<ExtContext>): void {
+  latestContext = { ...latestContext, ...ctx };
+  for (const cb of contextListeners) cb(latestContext);
+}
+
+function handleVisibility(visible: boolean, ctx?: Partial<ExtContext> | null): void {
+  latestVisible = visible;
+  if (ctx) latestContext = { ...latestContext, ...ctx };
+  for (const cb of visibilityListeners) cb(visible);
+  logDiagnostics(`onVisibilityChanged(${visible})`);
+  publishDiagnostics();
+}
+
+function handleHighlight(highlighted: boolean): void {
+  // Twitch highlights the extension when the viewer hovers its icon. The
+  // trigger gets louder for that moment; it does not depend on it.
+  latestHighlighted = highlighted;
+  for (const cb of highlightListeners) cb(highlighted);
+  publishDiagnostics();
+}
+
+/** Backend diagnostics for an authorization: the channel and a viewer kind, no token, no id. */
+function reportAuthorized(auth: ExtAuth, dev: boolean): void {
+  const channelId = diagChannelId(auth.channelId);
+  const viewerKind = diagViewerKind(auth.userId);
+  setDiagSnap({ authorized: true, channelId, viewerKind });
+  diagEvent('onAuthorized_fired', {
+    channelId,
+    clientId: auth.clientId,
+    viewerKind,
+    ...(dev ? { dev: true } : {}),
+  });
+}
+
+/** The first context only; later ones differ in bitrate and latency, not in anything useful. */
+function contextFacts(ctx: Partial<ExtContext>): Record<string, unknown> {
+  const { mode, isFullScreen, isPaused, isTheatreMode, playbackMode, arePlayerControlsVisible, theme } = ctx;
+  return { mode, isFullScreen, isPaused, isTheatreMode, playbackMode, arePlayerControlsVisible, theme };
+}
+
+function emitDevAuth(auth: ExtAuth): void {
+  reportAuthorized(auth, true);
+  emitAuth(auth);
+}
+
+// ---------------------------------------------------------------------------
 // Installation
 // ---------------------------------------------------------------------------
 
@@ -380,50 +463,75 @@ export function start(role: DevRole = 'viewer'): void {
     });
   }
 
-  const ext =
-    typeof window === 'undefined' || isDevFallback() ? undefined : window.Twitch?.ext;
+  const devFallback = isDevFallback();
+  const ext = typeof window === 'undefined' || devFallback ? undefined : window.Twitch?.ext;
+  const boot = bootBridge();
+  const bridged = !!ext && boot.wired;
 
-  if (ext) {
-    ext.onAuthorized((auth) => {
-      // Ids and a presence flag only — never auth.token or auth.helixToken.
-      // eslint-disable-next-line no-console
-      console.log('[GTAMAP] authorized', {
-        channelId: auth.channelId,
-        clientId: auth.clientId,
-        userIdPresent: !!auth.userId,
-      });
-      emitAuth(auth);
-    });
-    ext.onContext?.((ctx) => {
-      latestContext = { ...latestContext, ...ctx };
-      for (const cb of contextListeners) cb(latestContext);
-    });
-    ext.onError?.((err) => emitError(err));
-    ext.onVisibilityChanged?.((visible, ctx) => {
-      latestVisible = visible;
-      if (ctx) latestContext = { ...latestContext, ...ctx };
-      for (const cb of visibilityListeners) cb(visible);
-      logDiagnostics(`onVisibilityChanged(${visible})`);
-      publishDiagnostics();
-    });
-    ext.onHighlightChanged?.((highlighted) => {
-      // Twitch highlights the extension when the viewer hovers its icon. The
-      // trigger gets louder for that moment; it does not depend on it.
-      latestHighlighted = highlighted;
-      for (const cb of highlightListeners) cb(highlighted);
-      publishDiagnostics();
-    });
+  // Proof for the backend that the bundle itself ran, not just the HTML.
+  markAppLoaded();
+  diagEvent('app_bundle_loaded', {
+    helperPresent: hasTwitchHelper(),
+    helperVersion: typeof window === 'undefined' ? null : window.Twitch?.ext?.version ?? null,
+    devFallback,
+    bridged,
+  });
+
+  if (ext && bridged) {
+    // The boot script already holds the helper's only listener slots and
+    // reports every callback to the backend itself; subscribing through it
+    // keeps both. Anything that already fired is replayed immediately.
+    boot.twitch.on('authorized', handleAuthorized);
+    boot.twitch.on('context', (ctx) => handleContext(ctx));
+    boot.twitch.on('visibility', (visible, ctx) => handleVisibility(visible, ctx));
+    boot.twitch.on('highlight', handleHighlight);
+    boot.twitch.on('error', emitError);
 
     // No timed dev-token fallback here: inside Twitch the only valid identity
     // is the one Twitch signs, and a slow onAuthorized must not be replaced by
     // a fake one. Cases that really need the fallback are caught above.
+    logDiagnostics('twitch helper wired (via boot script)');
+    return;
+  }
+
+  if (ext) {
+    // No boot script on this page, so these are the only listeners — and the
+    // backend hears about the callbacks from here instead.
+    let contextReported = false;
+    ext.onAuthorized((auth) => {
+      reportAuthorized(auth, false);
+      handleAuthorized(auth);
+    });
+    ext.onContext?.((ctx) => {
+      if (!contextReported) {
+        contextReported = true;
+        diagEvent('onContext_first', contextFacts(ctx));
+      }
+      handleContext(ctx);
+    });
+    ext.onError?.((err) => {
+      diagEvent('twitch_ext_error', { error: { message: errorMessage(err) } });
+      emitError(err);
+    });
+    ext.onVisibilityChanged?.((visible, ctx) => {
+      setDiagSnap({ twitchVisible: visible });
+      diagEvent('onVisibilityChanged', { visible });
+      handleVisibility(visible, ctx);
+    });
+    ext.onHighlightChanged?.((highlighted) => {
+      setDiagSnap({ highlighted });
+      diagEvent('onHighlightChanged', { highlighted });
+      handleHighlight(highlighted);
+    });
+
+    // Same as above: never a dev token inside Twitch.
     logDiagnostics('twitch helper wired');
     return;
   }
 
   // Standing in for Twitch: local dev / player simulator / page opened directly.
   void mintDevToken(extParams.devUser, devRole)
-    .then((auth) => emitAuth(auth))
+    .then((auth) => emitDevAuth(auth))
     .catch((err: unknown) => emitError(err));
 
   if (typeof document !== 'undefined') {
@@ -503,7 +611,7 @@ export function requestIdShare(): void {
   if (isDevFallback()) {
     // Dev simulator: re-mint a linked token so the flow can be exercised.
     void mintDevToken(extParams.devUser, devRole)
-      .then((auth) => emitAuth(auth))
+      .then((auth) => emitDevAuth(auth))
       .catch((err: unknown) => emitError(err));
   }
 }

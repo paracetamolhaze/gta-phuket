@@ -12,6 +12,7 @@ import { stopAllSimulators } from './jobs/gpsSimulator.js';
 import { useDevHelix } from './twitch/devHelix.js';
 import { obsUrl } from './http/auth.js';
 import { ensureRewardPool } from './twitch/rewards.js';
+import { startRequestLogIngest } from './diag/ingest.js';
 
 async function bootstrap(): Promise<void> {
   const channelId = env.TWITCH_CHANNEL_ID || 'dev';
@@ -38,6 +39,11 @@ async function bootstrap(): Promise<void> {
   const app = await buildApp();
   await app.listen({ port: env.PORT, host: env.HOST });
 
+  // After the HTTP listener, and never fatal: without it only the extension
+  // request log goes quiet, and Caddy keeps serving (soft_start) regardless.
+  const requestLog =
+    env.EXT_LOG_INGEST_PORT > 0 ? await startRequestLogIngest({ port: env.EXT_LOG_INGEST_PORT }) : null;
+
   const io = createRealtimeServer(app.server);
   startMaintenanceJobs(channelId);
 
@@ -50,6 +56,7 @@ async function bootstrap(): Promise<void> {
       mapbox: env.MAPBOX_SERVER_TOKEN ? 'configured' : 'NOT CONFIGURED',
       eventsubCallback: `${env.PUBLIC_API_URL}/api/eventsub/twitch`,
       obsBrowserSource: obsUrl(),
+      extRequestLog: requestLog ? `tcp :${requestLog.port}` : 'off',
     },
     'gta-phuket api ready',
   );
@@ -63,6 +70,7 @@ async function bootstrap(): Promise<void> {
       // Sockets first: an open WebSocket keeps the HTTP server from closing.
       io.disconnectSockets(true);
       await io.close();
+      await requestLog?.close();
       await app.close();
     } finally {
       await Promise.allSettled([closePool(), closeRedis()]);

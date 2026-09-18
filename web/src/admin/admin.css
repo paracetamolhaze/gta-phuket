@@ -142,7 +142,16 @@ body.page-admin {
   width: 100%;
   max-width: 1680px;
   margin: 0 auto;
-  padding: 14px 16px 48px;
+  padding: 14px 16px;
+}
+
+/* Full-width row under the two columns; carries the page's bottom breathing room. */
+.ad-wide {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+  min-width: 0;
 }
 
 .ad-col {
@@ -487,6 +496,171 @@ body.page-admin {
 
 .ad-preview {
   font-size: 13px;
+}
+
+/* --- twitch extension diagnostics --------------------------------------- */
+
+/* Tone words for text inside the panel. Scoped: `is-ok` / `is-bad` mean other
+   things on slots and toasts. */
+.ad-diag .is-ok {
+  color: var(--ok);
+}
+
+.ad-diag .is-warn {
+  color: var(--accent);
+}
+
+.ad-diag .is-bad {
+  color: var(--danger);
+}
+
+.ad-diag-err {
+  margin: -4px 0 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--danger);
+  opacity: 0.85;
+}
+
+/* The one line the owner reads first. */
+.ad-verdict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid rgba(255, 107, 94, 0.4);
+  background: rgba(255, 107, 94, 0.09);
+  color: var(--danger);
+}
+
+.ad-verdict.is-ok {
+  border-color: rgba(88, 211, 140, 0.45);
+  background: rgba(88, 211, 140, 0.09);
+  color: var(--ok);
+}
+
+.ad-verdict.is-warn {
+  border-color: rgba(255, 194, 71, 0.4);
+  background: rgba(255, 194, 71, 0.08);
+  color: var(--accent);
+}
+
+.ad-verdict-code {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  font-variant-caps: all-small-caps;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.ad-verdict-text {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.ad-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ad-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ad-fact > .label {
+  white-space: nowrap;
+}
+
+/* Referers and origins are long unbroken URLs; let them wrap instead of
+   pushing the page sideways on a phone. */
+.ad-fact > b {
+  min-width: 0;
+  font-weight: 550;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.ad-fact.is-ok > b {
+  color: var(--ok);
+}
+
+.ad-fact.is-warn > b {
+  color: var(--accent);
+}
+
+.ad-fact.is-bad > b {
+  color: var(--danger);
+}
+
+.ad-diag-block {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.ad-diag .ad-table-wrap {
+  max-height: 520px;
+}
+
+/* Rows stay one line; the wrapper scrolls sideways instead of the page. */
+.ad-diag-table td {
+  white-space: nowrap;
+}
+
+.ad-diag-table tr.is-split td {
+  border-top-color: var(--hairline-strong);
+}
+
+.ad-diag-table tr.is-err td {
+  background: rgba(255, 107, 94, 0.07);
+}
+
+.ad-diag-table tr.is-err td:first-child {
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+
+/* max-width on a table cell itself is unreliable; an inline-block inside it
+   caps the column and ellipsises, the tooltip keeps the full text. */
+.ad-cut {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.ad-cut.is-s {
+  max-width: 120px;
+}
+
+.ad-cut.is-l {
+  max-width: 340px;
+}
+
+.ad-pill.is-bad {
+  color: var(--danger);
+  border-color: rgba(255, 107, 94, 0.4);
+}
+
+.ad-pill.is-redirect {
+  color: var(--player);
+  border-color: rgba(69, 224, 192, 0.4);
 }
 
 /* --- forms -------------------------------------------------------------- */
