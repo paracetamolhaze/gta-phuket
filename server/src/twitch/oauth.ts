@@ -12,6 +12,7 @@ import {
 } from './tokens.js';
 import { ensureRewardPool } from './rewards.js';
 import { ensureEventSubSubscriptions } from './eventsub.js';
+import { ensureExchangeReward, type EnsureExchangeRewardResult } from './exchangeReward.js';
 
 const AUTHORIZE_URL = 'https://id.twitch.tv/oauth2/authorize';
 const STATE_TTL_MINUTES = 10;
@@ -75,14 +76,15 @@ export interface ConnectResult {
   scopes: string[];
   pool: { created: number; updated: number; total: number } | null;
   eventsub: { created: string[]; removed: string[]; kept: string[] } | null;
+  exchangeReward: EnsureExchangeRewardResult | null;
   warnings: string[];
 }
 
 /**
  * Finish the OAuth dance, then bring the channel fully online: reward pool,
- * EventSub subscriptions. Both steps are best-effort and their failures are
- * reported rather than thrown, so a broadcaster never ends up authorised but
- * with no visible feedback about what is missing.
+ * GTA$ exchange reward, EventSub subscriptions. Each step is best-effort and
+ * its failure is reported rather than thrown, so a broadcaster never ends up
+ * authorised but with no visible feedback about what is missing.
  */
 export async function completeOAuth(code: string): Promise<ConnectResult> {
   const tokens = await exchangeCodeForTokens(code, redirectUri());
@@ -109,7 +111,8 @@ export async function completeOAuth(code: string): Promise<ConnectResult> {
   if (missing.length) {
     warnings.push(`Missing scopes: ${missing.join(', ')}. Reconnect and accept all permissions.`);
   }
-  if (env.TWITCH_CHANNEL_ID && identity.userId !== env.TWITCH_CHANNEL_ID) {
+  const foreignChannel = Boolean(env.TWITCH_CHANNEL_ID) && identity.userId !== env.TWITCH_CHANNEL_ID;
+  if (foreignChannel) {
     warnings.push(
       `Connected account ${identity.userId} does not match TWITCH_CHANNEL_ID=${env.TWITCH_CHANNEL_ID}.`,
     );
@@ -117,6 +120,7 @@ export async function completeOAuth(code: string): Promise<ConnectResult> {
 
   let pool: ConnectResult['pool'] = null;
   let eventsub: ConnectResult['eventsub'] = null;
+  let exchangeReward: ConnectResult['exchangeReward'] = null;
 
   try {
     const settings = await getSettings(identity.userId);
@@ -124,6 +128,23 @@ export async function completeOAuth(code: string): Promise<ConnectResult> {
   } catch (err) {
     logger.error({ err }, 'reward pool setup failed');
     warnings.push(`Reward pool setup failed: ${(err as Error).message}`);
+  }
+
+  // Unlike the pool's slots, which are created disabled, the exchange reward
+  // is live the moment it exists. On a channel this deployment does not serve
+  // every redemption of it is ignored by the webhook, so its viewers would pay
+  // ETH for nothing: it is only ever created on the configured channel.
+  if (foreignChannel) {
+    warnings.push(
+      `GTA$ exchange reward not created: account ${identity.userId} is not TWITCH_CHANNEL_ID.`,
+    );
+  } else {
+    try {
+      exchangeReward = await ensureExchangeReward(identity.userId);
+    } catch (err) {
+      logger.error({ err }, 'exchange reward setup failed');
+      warnings.push(`GTA$ exchange reward setup failed: ${(err as Error).message}`);
+    }
   }
 
   try {
@@ -135,5 +156,13 @@ export async function completeOAuth(code: string): Promise<ConnectResult> {
     );
   }
 
-  return { channelId: identity.userId, login: identity.login, scopes, pool, eventsub, warnings };
+  return {
+    channelId: identity.userId,
+    login: identity.login,
+    scopes,
+    pool,
+    eventsub,
+    exchangeReward,
+    warnings,
+  };
 }

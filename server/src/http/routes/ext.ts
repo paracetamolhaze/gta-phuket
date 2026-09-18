@@ -9,6 +9,7 @@ import { countFreeSlots } from '../../domain/slots.js';
 import { loadBroadcasterTokens } from '../../twitch/tokens.js';
 import { listEventSubSubscriptions } from '../../twitch/helix.js';
 import { useDevHelix } from '../../twitch/devHelix.js';
+import { getEconomyInfo } from '../../twitch/exchangeReward.js';
 import { searchPlaces } from '../../maps/mapbox.js';
 import {
   buildViewerState,
@@ -16,7 +17,9 @@ import {
   confirmViewerQuote,
   createViewerQuote,
   expireStaleQuotes,
+  purchaseViewerWaypoint,
 } from '../../domain/waypointFlow.js';
+import { buildWalletView } from '../../domain/wallet.js';
 import { AppError } from '../../domain/types.js';
 import { requireExtIdentity, requireLinkedViewer } from '../auth.js';
 import { enforceRateLimit } from '../rateLimit.js';
@@ -29,6 +32,12 @@ const quoteBodySchema = z.object({
 });
 
 const searchQuerySchema = z.object({ q: z.string().min(1).max(120) });
+
+/**
+ * A quote id and nothing else. Unknown keys (a `userId`, a `cost`) are
+ * dropped, not honoured: the buyer and the price never come from the body.
+ */
+const purchaseBodySchema = z.object({ quoteId: z.string().min(1).max(64) });
 
 export async function registerExtRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -114,6 +123,34 @@ export async function registerExtRoutes(app: FastifyInstance): Promise<void> {
 
     await enforceRateLimit('confirm', `${identity.channelId}:${userId}`, 20);
     return confirmViewerQuote(identity.channelId, userId, id);
+  });
+
+  /**
+   * The viewer's own GTA$ wallet. Whose wallet is decided by the verified
+   * token alone; a `userId` in the query string is ignored like any other
+   * unknown parameter. Reading never creates a wallet.
+   *
+   * Capped per viewer: each read is several queries on the pool that credits,
+   * purchases and refunds share. The overlay re-reads on a handful of events
+   * (open, reconnect, wallet:updated, a purchase), far below this, and keeps
+   * its last balance when a read is refused.
+   */
+  app.get('/api/ext/wallet', async (req) => {
+    const identity = requireExtIdentity(req);
+    const userId = requireLinkedViewer(identity);
+    await enforceRateLimit('wallet', `${identity.channelId}:${userId}`, 60);
+    const economy = await getEconomyInfo(identity.channelId);
+    return buildWalletView(identity.channelId, userId, economy);
+  });
+
+  /** One click, one atomic GTA$ purchase of a quoted waypoint. */
+  app.post('/api/ext/waypoints/purchase', async (req) => {
+    const identity = requireExtIdentity(req);
+    const userId = requireLinkedViewer(identity);
+
+    await enforceRateLimit('purchase', `${identity.channelId}:${userId}`, 10);
+    const { quoteId } = purchaseBodySchema.parse(req.body ?? {});
+    return purchaseViewerWaypoint(identity.channelId, userId, quoteId);
   });
 
   app.post('/api/ext/quote/:id/cancel', async (req) => {

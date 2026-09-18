@@ -458,6 +458,37 @@ a.btn {
   }
 }
 
+/* НЕ МОГУ / НЕБЕЗОПАСНО: side by side under the complete button, same
+   arm-and-drain behaviour (they carry .sc-finish), quieter until armed so
+   the eye still lands on ЗАВЕРШИТЬ first. */
+.sc-abort {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.btn.sc-abort-btn {
+  min-height: 56px;
+  padding: 0 10px;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  white-space: normal;
+  text-align: center;
+}
+
+.sc-abort-btn:not(.is-armed) {
+  color: var(--text-dim);
+}
+
+.sc-abort-note {
+  margin-top: -4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
 /* ------------------------------------------------------------------ footer */
 
 .sc-foot {

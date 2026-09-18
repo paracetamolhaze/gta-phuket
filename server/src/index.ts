@@ -12,6 +12,9 @@ import { stopAllSimulators } from './jobs/gpsSimulator.js';
 import { useDevHelix } from './twitch/devHelix.js';
 import { obsUrl } from './http/auth.js';
 import { ensureRewardPool } from './twitch/rewards.js';
+import { ensureExchangeReward } from './twitch/exchangeReward.js';
+import { loadBroadcasterTokens } from './twitch/tokens.js';
+import { paymentMode } from './domain/paymentMode.js';
 import { startRequestLogIngest } from './diag/ingest.js';
 
 async function bootstrap(): Promise<void> {
@@ -47,6 +50,21 @@ async function bootstrap(): Promise<void> {
   const io = createRealtimeServer(app.server);
   startMaintenanceJobs(channelId);
 
+  // The GTA$ exchange reward, in the background and never fatal: a Twitch
+  // hiccup must not keep the map offline, and the admin can re-run it with
+  // «СИНХР. НАГРАДУ ОБМЕНА». Only against the local stub, or against real
+  // Twitch once the broadcaster has connected (before that there is no token
+  // to create a reward with).
+  void (async () => {
+    const connected = env.realTwitch && Boolean(await loadBroadcasterTokens(channelId));
+    if (!useDevHelix() && !connected) return;
+    const result = await ensureExchangeReward(channelId);
+    logger.info(
+      { action: result.action, rewardId: result.reward.id, cost: result.reward.cost },
+      'GTA$ exchange reward ready',
+    );
+  })().catch((err) => logger.error({ err }, 'GTA$ exchange reward setup failed at boot'));
+
   logger.info(
     {
       port: env.PORT,
@@ -55,6 +73,7 @@ async function bootstrap(): Promise<void> {
       twitch: useDevHelix() ? 'local stub' : env.TWITCH_CLIENT_ID ? 'configured' : 'NOT CONFIGURED',
       mapbox: env.MAPBOX_SERVER_TOKEN ? 'configured' : 'NOT CONFIGURED',
       eventsubCallback: `${env.PUBLIC_API_URL}/api/eventsub/twitch`,
+      paymentMode: paymentMode(),
       obsBrowserSource: obsUrl(),
       extRequestLog: requestLog ? `tcp :${requestLog.port}` : 'off',
     },

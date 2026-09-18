@@ -3,17 +3,20 @@ import type { FormEvent } from 'react';
 import type { Socket } from 'socket.io-client';
 
 import { ApiClient, ApiFailure } from '../shared/api';
+import { formatGta } from '../shared/format';
 import { bind, connectSocket } from '../shared/socket';
 import type {
   ActiveWaypointView,
   ChannelSettings,
   GpsState,
   GpsStatus,
+  PaymentMode,
   PublicGps,
   QuoteStatus,
   SlotStatus,
 } from '../shared/types';
 
+import { EconomyPanel } from './EconomyPanel';
 import { ExtDiagnosticsPanel } from './ExtDiagnosticsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { StatusPanel } from './StatusPanel';
@@ -32,8 +35,21 @@ const TOAST_MS = 7000;
  * The exact ActiveWaypointView plus the purchased distance when the server
  * happens to send it. It is not in the published contract, so the console also
  * remembers the largest remaining distance it has seen as a fallback baseline.
+ *
+ * For a GTA$ waypoint (`currency === 'GTA_DOLLAR'`) `channelPointsPaid` holds
+ * the GTA$ cost (docs/GTA_DOLLAR_ECONOMY.md §6, step 7).
  */
 export type AdminWaypointView = ActiveWaypointView & { routeDistanceMeters?: number };
+
+/**
+ * What the refund checkbox gives back, in the owner's words. The currency is
+ * read defensively: a view without it gets the generic wording, never a guess.
+ */
+function refundWords(currency: string | null | undefined): string {
+  if (currency === 'GTA_DOLLAR') return 'GTA$';
+  if (currency === 'CHANNEL_POINTS') return 'баллы';
+  return 'оплату';
+}
 
 export interface AdminSlotItem {
   index: number;
@@ -57,6 +73,8 @@ export interface AdminQuoteRow {
   status: QuoteStatus;
   destinationName: string;
   cost: number;
+  /** What `cost` is in; absent from an older server. */
+  currency?: 'GTA_DOLLAR' | 'CHANNEL_POINTS';
   twitchUserName: string | null;
   expiresAt: number;
   createdAt?: number;
@@ -85,6 +103,7 @@ interface RawAdminState {
   settings?: ChannelSettings | null;
   slots?: { total?: number; free?: number; items?: AdminSlotItem[] | null } | null;
   quotes?: AdminQuoteRow[] | null;
+  paymentMode?: string | null;
   oauth?: {
     connected?: boolean;
     scopes?: string[] | null;
@@ -216,11 +235,13 @@ type ConfirmKind = 'cancel' | 'clear';
 interface ConfirmDialogProps {
   kind: ConfirmKind;
   busy: boolean;
+  /** The running waypoint, for the refund wording; null when unknown. */
+  waypoint: AdminWaypointView | null;
   onClose: () => void;
   onConfirm: (reason: string, refund: boolean) => void;
 }
 
-function ConfirmDialog({ kind, busy, onClose, onConfirm }: ConfirmDialogProps): JSX.Element {
+function ConfirmDialog({ kind, busy, waypoint, onClose, onConfirm }: ConfirmDialogProps): JSX.Element {
   const [reason, setReason] = useState('Отменено стримером');
   const [refund, setRefund] = useState(true);
 
@@ -233,6 +254,8 @@ function ConfirmDialog({ kind, busy, onClose, onConfirm }: ConfirmDialogProps): 
   }, [onClose]);
 
   const isCancel = kind === 'cancel';
+  const currency = waypoint?.currency ?? null;
+  const gtaCost = currency === 'GTA_DOLLAR' ? (waypoint?.channelPointsPaid ?? null) : null;
 
   return (
     <div className="ad-modal" role="dialog" aria-modal="true">
@@ -243,6 +266,12 @@ function ConfirmDialog({ kind, busy, onClose, onConfirm }: ConfirmDialogProps): 
             ? 'Активное задание будет закрыто. Зритель увидит отмену на оверлее.'
             : 'Текущий маршрут и состояние точки будут очищены. Действие необратимо.'}
         </p>
+        {!isCancel && currency === 'GTA_DOLLAR' ? (
+          <div className="ad-hint">
+            {gtaCost != null && gtaCost > 0 ? `${formatGta(gtaCost)} вернутся` : 'GTA$ вернутся'} на кошелёк
+            зрителя: сброс не оставляет его без задания и без денег. Отменить без возврата — через «ОТМЕНИТЬ».
+          </div>
+        ) : null}
         {isCancel ? (
           <>
             <label className="ad-field">
@@ -261,8 +290,14 @@ function ConfirmDialog({ kind, busy, onClose, onConfirm }: ConfirmDialogProps): 
                 onChange={(e) => setRefund(e.target.checked)}
                 disabled={busy}
               />
-              <span>Вернуть баллы зрителю</span>
+              <span>Вернуть {refundWords(currency)} зрителю</span>
             </label>
+            {currency === 'GTA_DOLLAR' ? (
+              <div className="ad-hint">
+                {gtaCost != null && gtaCost > 0 ? `${formatGta(gtaCost)} вернутся` : 'GTA$ вернутся'} на кошелёк
+                зрителя сразу и один раз; баллы канала Twitch не затрагиваются.
+              </div>
+            ) : null}
           </>
         ) : null}
         <div className="ad-modal-row">
@@ -312,6 +347,7 @@ export function App(): JSX.Element {
   const [waypoint, setWaypoint] = useState<AdminWaypointView | null>(null);
   const [settings, setSettings] = useState<ChannelSettings | null>(null);
   const [waypointsOpen, setWaypointsOpen] = useState<boolean | null>(null);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
   const [slots, setSlots] = useState<AdminSlotsView>(EMPTY_SLOTS);
   const [quotes, setQuotes] = useState<AdminQuoteRow[]>([]);
   const [oauth, setOauth] = useState<AdminOAuthView>(EMPTY_OAUTH);
@@ -404,6 +440,11 @@ export function App(): JSX.Element {
             items: Array.isArray(rawItems) ? rawItems : null,
           });
           setQuotes(Array.isArray(state.quotes) ? state.quotes : []);
+          setPaymentMode(
+            state.paymentMode === 'gta_dollar' || state.paymentMode === 'channel_points_reward'
+              ? state.paymentMode
+              : null,
+          );
           const rawOauth = state.oauth;
           const rawScopes = rawOauth?.scopes;
           const rawTypes = rawOauth?.eventsub?.types;
@@ -616,12 +657,34 @@ export function App(): JSX.Element {
       disabled: !hasWaypoint,
       confirm: 'cancel',
       run: async (reason, refund) => {
-        const res = await api.post<{ ok: boolean; refunded?: boolean }>('/api/admin/waypoint/cancel', {
+        // Captured before the call: the socket may clear the waypoint first.
+        const currency = waypoint?.currency ?? null;
+        const res = await api.post<{
+          ok: boolean;
+          refunded?: boolean;
+          amount?: number | null;
+          currency?: string | null;
+          refundError?: string | null;
+        }>('/api/admin/waypoint/cancel', {
           reason: reason || 'Отменено стримером',
           refund,
         });
         setWaypoint(null);
-        return res?.refunded ? 'Задание отменено, баллы возвращены' : 'Задание отменено';
+        if (res?.refunded) {
+          const paidIn = res.currency ?? currency;
+          const amount = typeof res.amount === 'number' && res.amount > 0 ? res.amount : null;
+          if (paidIn === 'GTA_DOLLAR') {
+            return amount != null
+              ? `Задание отменено, зрителю возвращено ${formatGta(amount)}`
+              : 'Задание отменено, GTA$ возвращены';
+          }
+          return paidIn === 'CHANNEL_POINTS'
+            ? 'Задание отменено, баллы возвращены'
+            : 'Задание отменено, оплата возвращена';
+        }
+        // The owner asked for a refund and it did not happen: say so, never stay silent.
+        if (refund && res?.refundError) return `Задание отменено, возврата нет: ${res.refundError}`;
+        return 'Задание отменено';
       },
     },
     {
@@ -631,8 +694,16 @@ export function App(): JSX.Element {
       disabled: false,
       confirm: 'clear',
       run: async () => {
-        await api.post<{ ok: boolean }>('/api/admin/waypoint/clear');
+        const res = await api.post<{ ok: boolean; refunded?: boolean; amount?: number | null }>(
+          '/api/admin/waypoint/clear',
+        );
         setWaypoint(null);
+        // Only a GTA$ job is paid back by a reset; the amount is the server's.
+        if (res?.refunded) {
+          return typeof res.amount === 'number' && res.amount > 0
+            ? `Маршрут сброшен, зрителю возвращено ${formatGta(res.amount)}`
+            : 'Маршрут сброшен, GTA$ возвращены';
+        }
         return 'Маршрут сброшен';
       },
     },
@@ -732,9 +803,18 @@ export function App(): JSX.Element {
           />
         </div>
         <div className="ad-col">
+          {/* First on the right: failed or externally canceled exchanges are alerts. */}
+          <EconomyPanel
+            api={api}
+            settings={settings}
+            onToast={pushToast}
+            onAuthError={handleAuthError}
+            onChanged={() => refreshRef.current?.()}
+          />
           <SettingsPanel
             api={api}
             externalSettings={settings}
+            paymentMode={paymentMode}
             onToast={pushToast}
             onAuthError={handleAuthError}
             onSaved={(next) => {
@@ -755,6 +835,7 @@ export function App(): JSX.Element {
         <ConfirmDialog
           kind={confirming}
           busy={pending === confirmAction.key}
+          waypoint={waypoint}
           onClose={() => setConfirming(null)}
           onConfirm={(reason, refund) => {
             setConfirming(null);

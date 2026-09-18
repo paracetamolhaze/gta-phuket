@@ -83,6 +83,15 @@ const schema = z.object({
     .string()
     .default('false')
     .transform((v) => v === 'true' || v === '1'),
+
+  /**
+   * How waypoints are paid for (docs/GTA_DOLLAR_ECONOMY.md).
+   *
+   * `gta_dollar` — the internal GTA$ wallet, topped up through the one
+   * «Обмен ETH на GTA DOLLAR» reward. `channel_points_reward` — the legacy
+   * per-quote slot rewards, kept so a rollback is a config change.
+   */
+  WAYPOINT_PAYMENT_MODE: z.enum(['gta_dollar', 'channel_points_reward']).default('gta_dollar'),
 });
 
 export type Env = z.infer<typeof schema> & {
@@ -91,6 +100,7 @@ export type Env = z.infer<typeof schema> & {
   devModeEnabled: boolean;
   /** True when the app must talk to the real Twitch API and nothing else. */
   realTwitch: boolean;
+  waypointPaymentMode: 'gta_dollar' | 'channel_points_reward';
 };
 
 /** Everything REAL_TWITCH cannot work without. */
@@ -172,6 +182,7 @@ function build(): Env {
     isProduction,
     isTest: parsed.NODE_ENV === 'test',
     realTwitch,
+    waypointPaymentMode: parsed.WAYPOINT_PAYMENT_MODE,
     // Dev endpoints are hard-disabled in production, and in real Twitch mode:
     // a simulated redemption must never be able to stand in for a paid one.
     devModeEnabled: parsed.DEV_MODE && !isProduction && !realTwitch,

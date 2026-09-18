@@ -11,6 +11,14 @@ Twitch Extension → карта Пхукета → точка → walking route 
       → OBS HUD + навигация на телефоне
 ```
 
+> **Оплата по умолчанию — GTA DOLLAR (`GTA$`).** Зритель меняет баллы канала
+> (здесь они называются ETH) на GTA$ одной наградой «Обмен ETH на GTA DOLLAR»
+> (500 ETH → 5 000 GTA$) и дальше платит за точки прямо в карте, одной кнопкой.
+> Награда на каждую точку, описанная ниже, осталась режимом отката
+> `WAYPOINT_PAYMENT_MODE=channel_points_reward`. Настройка и проверка —
+> [TWITCH_SETUP.md §11](TWITCH_SETUP.md#11-gta-dollar-gta), контракт —
+> [docs/GTA_DOLLAR_ECONOMY.md](docs/GTA_DOLLAR_ECONOMY.md).
+
 ---
 
 ## Содержание

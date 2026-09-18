@@ -14,6 +14,7 @@ import { broadcastGps } from '../../realtime/gpsBroadcast.js';
 import { signDevExtensionJwt } from '../../twitch/extJwt.js';
 import { computeSignature } from '../../twitch/eventsub.js';
 import { resetDevHelix, useDevHelix } from '../../twitch/devHelix.js';
+import { getExchangeReward } from '../../twitch/exchangeReward.js';
 import {
   placeSimulator,
   setSimulatorSpeed,
@@ -44,6 +45,8 @@ const redeemSchema = z.object({
   rewardId: z.string().optional(),
   userId: z.string().optional(),
   cost: z.number().int().optional(),
+  /** Redeem the GTA$ exchange reward instead of a slot. */
+  exchange: z.boolean().optional(),
 });
 
 /**
@@ -167,7 +170,15 @@ export async function registerDevRoutes(app: FastifyInstance): Promise<void> {
     let userId = body.userId ?? null;
     let cost = body.cost ?? null;
 
-    if (body.quoteId) {
+    if (body.exchange) {
+      const reward = await getExchangeReward(channelId);
+      if (!reward) {
+        throw new AppError('not_found', 'Награды обмена ещё нет — нажми синхронизацию в админке', 404);
+      }
+      rewardId = reward.twitchRewardId;
+      userId = userId ?? '100000001';
+      cost = cost ?? reward.cost;
+    } else if (body.quoteId) {
       const quote = await getQuote(body.quoteId);
       if (!quote) throw new AppError('quote_not_found', 'Расчёт не найден', 404);
       if (!quote.slotId) {

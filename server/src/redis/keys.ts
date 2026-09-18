@@ -22,6 +22,10 @@ export const K = {
   lockSlots: (channelId: string) => `gta:${channelId}:lock:slots`,
   /** Mutex around the broadcaster token refresh. */
   lockTokenRefresh: (channelId: string) => `gta:${channelId}:lock:token`,
+  /** Mutex around creating/reconciling the GTA$ exchange reward on Twitch. */
+  lockExchangeReward: (channelId: string) => `gta:${channelId}:lock:exchangereward`,
+  /** Mutex around the exchange-redemption fulfilment retry sweep. */
+  lockFulfillment: (channelId: string) => `gta:${channelId}:lock:fulfillment`,
 
   /** EventSub message-id seen marker. */
   eventSeen: (messageId: string) => `gta:eventsub:seen:${messageId}`,

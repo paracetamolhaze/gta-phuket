@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   JUNGCEYLON,
   PATONG,
@@ -8,6 +8,7 @@ import {
   seedRewardPool,
   servicesAvailable,
 } from './helpers/services.js';
+import { setPaymentModeOverride } from '../src/domain/paymentMode.js';
 import type { WalkingRoute } from '../src/domain/types.js';
 
 /**
@@ -40,6 +41,13 @@ vi.mock('../src/maps/mapbox.js', async (importOriginal) => {
 
 const online = await servicesAvailable();
 const d = online ? describe : describe.skip;
+
+// These suites exercise the legacy per-quote slot rewards, which only exist in
+// channel_points_reward mode. The mode is pinned here rather than assumed, so a
+// change of default cannot quietly turn them into tests of something else; the
+// GTA$ flow has its own suite (gta-dollar.test.ts).
+beforeAll(() => setPaymentModeOverride('channel_points_reward'));
+afterAll(() => setPaymentModeOverride(null));
 
 const VIEWER = '100000001';
 

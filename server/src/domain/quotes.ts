@@ -1,4 +1,5 @@
 import { randomUUID, randomInt } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { query } from '../db/pool.js';
 import { AppError } from './types.js';
 import { redis } from '../redis/client.js';
@@ -12,6 +13,7 @@ import type {
   Quote,
   QuoteStatus,
   QuoteView,
+  WaypointCurrency,
 } from './types.js';
 
 /** No 0/O/1/I/L — the viewer has to read this off the screen and find it in a menu. */
@@ -43,6 +45,7 @@ interface QuoteRow {
   cost: number;
   status: string;
   slot_id: string | null;
+  currency: string;
   created_at: Date;
   expires_at: Date;
 }
@@ -62,6 +65,7 @@ function rowToQuote(row: QuoteRow): Quote {
     routeDurationSeconds: row.duration_seconds,
     routeGeometry: row.route_geometry,
     channelPointsCost: row.cost,
+    currency: row.currency === 'GTA_DOLLAR' ? 'GTA_DOLLAR' : 'CHANNEL_POINTS',
     status: row.status as QuoteStatus,
     slotId: row.slot_id,
     createdAt: row.created_at.getTime(),
@@ -90,6 +94,7 @@ export function toQuoteView(quote: Quote, settings?: ChannelSettings): QuoteView
       ? (sanitizeRouteGeometry(quote.routeGeometry, settings) ?? quote.routeGeometry)
       : quote.routeGeometry,
     rewardTitle: quote.status === 'AWAITING_REDEMPTION' ? activeTitle(quote.code) : null,
+    currency: quote.currency,
   };
 }
 
@@ -106,6 +111,8 @@ export interface CreateQuoteInput {
   routeGeometry: string;
   price: PriceBreakdown;
   ttlSeconds: number;
+  /** What the price is in. Defaults to the legacy Channel Points. */
+  currency?: WaypointCurrency;
 }
 
 /**
@@ -127,9 +134,9 @@ export async function createQuote(input: CreateQuoteInput): Promise<Quote> {
            (id, code, channel_id, twitch_user_id, twitch_user_name,
             origin_lat, origin_lng, dest_lat, dest_lng, dest_name, dest_category,
             distance_meters, duration_seconds, route_geometry, cost, price_breakdown,
-            status, expires_at)
+            status, expires_at, currency)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,'QUOTED',
-                 to_timestamp($17 / 1000.0))
+                 to_timestamp($17 / 1000.0), $18)
          RETURNING *`,
         [
           id,
@@ -149,6 +156,7 @@ export async function createQuote(input: CreateQuoteInput): Promise<Quote> {
           input.price.cost,
           JSON.stringify(input.price),
           expiresAt,
+          input.currency ?? 'CHANNEL_POINTS',
         ],
       );
       const row = rows[0];
@@ -179,6 +187,25 @@ export async function getQuote(quoteId: string): Promise<Quote | null> {
   const { rows } = await query<QuoteRow>('SELECT * FROM waypoint_quotes WHERE id = $1', [quoteId]);
   const row = rows[0];
   return row ? rowToQuote(row) : null;
+}
+
+/**
+ * Read a quote and hold its row lock until the caller's transaction ends.
+ * Two purchases of one quote queue up here instead of both seeing QUOTED.
+ */
+export async function lockQuote(client: PoolClient, quoteId: string): Promise<Quote | null> {
+  const { rows } = await client.query<QuoteRow>(
+    'SELECT * FROM waypoint_quotes WHERE id = $1 FOR UPDATE',
+    [quoteId],
+  );
+  const row = rows[0];
+  return row ? rowToQuote(row) : null;
+}
+
+/** Keep the Redis copy in step after a status change made inside a transaction. */
+export async function refreshQuoteCache(quoteId: string): Promise<void> {
+  const quote = await getQuote(quoteId);
+  if (quote) await cacheQuote(quote);
 }
 
 export async function getQuoteBySlot(slotId: string): Promise<Quote | null> {

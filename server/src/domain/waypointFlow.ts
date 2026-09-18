@@ -1,9 +1,12 @@
+import type { PoolClient } from 'pg';
+import { withTransaction } from '../db/pool.js';
 import { logger } from '../logger.js';
 import { K } from '../redis/keys.js';
 import { withLock } from '../redis/lock.js';
-import { emitRealtime } from '../realtime/bus.js';
+import { emitRealtime, emitToViewer } from '../realtime/bus.js';
 import { getWalkingRoute } from '../maps/mapbox.js';
 import { activateSlotReward, activeTitle } from '../twitch/rewards.js';
+import { getEconomyInfo } from '../twitch/exchangeReward.js';
 import { getPublicGps, requireFreshGps } from './gps.js';
 import { findRestrictedZone, haversineMeters, inBounds, sanitizeName } from './geo.js';
 import { calculatePrice } from './pricing.js';
@@ -13,14 +16,35 @@ import {
   findExpiredQuotes,
   getQuote,
   getViewerLiveQuote,
+  lockQuote,
+  refreshQuoteCache,
   setQuoteStatus,
   toQuoteView,
 } from './quotes.js';
 import { countFreeSlots, getSlot, leaseSlot, releaseSlot } from './slots.js';
-import { getActiveWaypoint, getActiveWaypointView, hasActiveWaypoint } from './waypoints.js';
+import {
+  getActiveWaypoint,
+  getActiveWaypointView,
+  getWaypointByQuote,
+  hasActiveWaypoint,
+  insertActiveWaypoint,
+  primeLiveNav,
+  toView,
+} from './waypoints.js';
 import { sanitizeRouteGeometry } from './privacy.js';
 import { getSettings } from './settings.js';
-import { AppError, type LatLng, type Quote, type QuoteView } from './types.js';
+import { paymentMode } from './paymentMode.js';
+import { debitForWaypoint, getBalance, isUniqueViolation, lockWallet } from './wallet.js';
+import {
+  AppError,
+  type ActiveWaypointView,
+  type ChannelSettings,
+  type LatLng,
+  type Quote,
+  type QuoteView,
+  type ViewerStatePayload,
+  type Waypoint,
+} from './types.js';
 
 export interface QuoteRequest {
   channelId: string;
@@ -122,6 +146,9 @@ export async function createViewerQuote(req: QuoteRequest): Promise<QuoteView> {
         routeGeometry: route.geometry,
         price,
         ttlSeconds: settings.quoteTtlSeconds,
+        // Priced in whatever the channel sells in right now. The formula is
+        // the same either way; only its unit differs.
+        currency: paymentMode() === 'gta_dollar' ? 'GTA_DOLLAR' : 'CHANNEL_POINTS',
       });
     },
     {
@@ -150,6 +177,13 @@ export async function confirmViewerQuote(
   twitchUserId: string,
   quoteId: string,
 ): Promise<QuoteView> {
+  // In GTA$ mode the slot pool is left exactly as it is: nothing is leased and
+  // no reward is put in front of anyone. Waypoints are bought with
+  // POST /api/ext/waypoints/purchase instead.
+  if (paymentMode() !== 'channel_points_reward') {
+    throw new AppError('payment_mode', 'Точки оплачиваются GTA$ прямо в карте', 409);
+  }
+
   const settings = await getSettings(channelId);
   const quote = await getQuote(quoteId);
 
@@ -158,6 +192,10 @@ export async function confirmViewerQuote(
   }
   if (quote.twitchUserId !== twitchUserId) {
     throw new AppError('forbidden', 'Это чужой расчёт', 403);
+  }
+  if (quote.currency !== 'CHANNEL_POINTS') {
+    // Priced in GTA$ before a switch back to the legacy mode.
+    throw new AppError('payment_mode', 'Этот расчёт оплачивается GTA$', 409);
   }
   if (quote.status === 'AWAITING_REDEMPTION') {
     // Idempotent: a double tap returns the same instruction card.
@@ -267,13 +305,257 @@ export async function emitSlotCounts(channelId: string): Promise<void> {
   emitRealtime(channelId, 'slots:update', counts);
 }
 
+// ---------------------------------------------------------------------------
+// GTA$ purchase
+// ---------------------------------------------------------------------------
+
+export interface PurchaseResult {
+  ok: true;
+  /** False when this quote had already been bought: same waypoint, no second charge. */
+  charged: boolean;
+  /** Viewer copy: the route is privacy-filtered like every other viewer feed. */
+  waypoint: ActiveWaypointView;
+  /**
+   * Where that waypoint stands now. Always ACTIVE on a fresh charge; a repeat
+   * (a retry after a lost response) can come after the job was completed or
+   * cancelled, and the viewer must not be shown a finished job as running.
+   */
+  waypointStatus: 'ACTIVE' | 'COMPLETED' | 'CANCELED';
+  balance: number;
+  cost: number;
+}
+
+type PurchaseStep =
+  | { kind: 'charged'; waypoint: Waypoint; cost: number; balance: number; transactionId: string }
+  | { kind: 'already'; cost: number }
+  | { kind: 'expired' }
+  | { kind: 'price_changed'; quoted: number; current: number };
+
+function waypointActiveError(): AppError {
+  return new AppError(
+    'waypoint_active',
+    'Сейчас выполняется задание. Следующую точку можно будет выбрать после завершения',
+    409,
+  );
+}
+
+function viewerCopy(view: ActiveWaypointView, settings: ChannelSettings): ActiveWaypointView {
+  return {
+    ...view,
+    routeGeometry: sanitizeRouteGeometry(view.routeGeometry, settings) ?? view.routeGeometry,
+    liveRouteGeometry: null,
+  };
+}
+
+/**
+ * Everything that decides a purchase, in one transaction with the quote row
+ * locked. Outcomes that must leave a trace (an expired or repriced quote is
+ * closed) are returned rather than thrown, so that trace commits; everything
+ * else throws and rolls back, which is what leaves the balance untouched.
+ */
+async function purchaseInTransaction(
+  client: PoolClient,
+  input: { channelId: string; twitchUserId: string; quoteId: string; settings: ChannelSettings },
+): Promise<PurchaseStep> {
+  const { channelId, twitchUserId, settings } = input;
+
+  const quote = await lockQuote(client, input.quoteId);
+  if (!quote || quote.channelId !== channelId) {
+    throw new AppError('quote_not_found', 'Расчёт не найден', 404);
+  }
+  if (quote.twitchUserId !== twitchUserId) {
+    throw new AppError('forbidden', 'Это чужой расчёт', 403);
+  }
+
+  if (quote.status === 'PAID') {
+    const { rows } = await client.query<{ amount: number }>(
+      `SELECT amount FROM gta_wallet_transactions
+        WHERE quote_id = $1 AND type = 'WAYPOINT_DEBIT' AND twitch_user_id = $2`,
+      [quote.id, twitchUserId],
+    );
+    // A double click, a retry after a lost response: same waypoint, no charge.
+    if (rows[0]) return { kind: 'already', cost: -rows[0].amount };
+  }
+  if (quote.status !== 'QUOTED') {
+    throw new AppError('quote_conflict', 'Этот расчёт уже использован', 409);
+  }
+  if (quote.expiresAt <= Date.now()) {
+    await client.query(
+      `UPDATE waypoint_quotes SET status = 'EXPIRED' WHERE id = $1 AND status = 'QUOTED'`,
+      [quote.id],
+    );
+    return { kind: 'expired' };
+  }
+  if (quote.currency !== 'GTA_DOLLAR') {
+    throw new AppError('payment_mode', 'Этот расчёт нельзя оплатить GTA$', 409);
+  }
+
+  // The quote froze a price; the admin may have changed pricing since. Never
+  // charge a number the formula no longer produces: the quote dies and the
+  // viewer asks again, and sees the new price before paying it.
+  const current = calculatePrice(quote.routeDistanceMeters, settings).cost;
+  if (current !== quote.channelPointsCost) {
+    await client.query(
+      `UPDATE waypoint_quotes SET status = 'CANCELED' WHERE id = $1 AND status = 'QUOTED'`,
+      [quote.id],
+    );
+    return { kind: 'price_changed', quoted: quote.channelPointsCost, current };
+  }
+
+  if (!settings.waypointsOpen) {
+    throw new AppError('waypoints_closed', 'Приём точек сейчас закрыт', 409);
+  }
+  const active = await client.query(
+    `SELECT 1 FROM waypoints WHERE channel_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+    [channelId],
+  );
+  if (active.rows.length > 0) throw waypointActiveError();
+
+  const cost = quote.channelPointsCost;
+  const balance = await lockWallet(client, channelId, twitchUserId);
+  if (balance < cost) {
+    throw new AppError('insufficient_funds', 'Не хватает GTA$', 402, { balance, cost });
+  }
+
+  const paid = await client.query(
+    `UPDATE waypoint_quotes SET status = 'PAID' WHERE id = $1 AND status = 'QUOTED' RETURNING id`,
+    [quote.id],
+  );
+  if (!paid.rows[0]) throw new Error('quote changed state under its row lock');
+
+  const waypoint = await insertActiveWaypoint(client, quote);
+  const debit = await debitForWaypoint(client, {
+    channelId,
+    twitchUserId,
+    quoteId: quote.id,
+    waypointId: waypoint.id,
+    cost,
+    balanceBefore: balance,
+  });
+  return { kind: 'charged', waypoint, cost, ...debit };
+}
+
+/**
+ * Buy a quoted waypoint with GTA$, in one click and one transaction.
+ *
+ * The body carries a quote id and nothing else: the buyer is the verified
+ * token's user, and the price, route and deadline are the quote's own. The
+ * per-channel activation lock serialises this with the legacy redemption
+ * path; the quote row lock, the wallet row lock and the unique indexes make a
+ * second charge or a second active waypoint impossible regardless.
+ */
+export async function purchaseViewerWaypoint(
+  channelId: string,
+  twitchUserId: string,
+  quoteId: string,
+): Promise<PurchaseResult> {
+  return withLock(
+    K.lockActivation(channelId),
+    async (): Promise<PurchaseResult> => {
+      const settings = await getSettings(channelId);
+
+      let step: PurchaseStep;
+      try {
+        step = await withTransaction((client) =>
+          purchaseInTransaction(client, { channelId, twitchUserId, quoteId, settings }),
+        );
+      } catch (err) {
+        if (isUniqueViolation(err, 'waypoints_one_active_per_channel')) throw waypointActiveError();
+        if (
+          isUniqueViolation(err, 'gta_tx_one_debit_per_quote') ||
+          isUniqueViolation(err, 'waypoints_one_per_quote')
+        ) {
+          // Another transaction bought this very quote first.
+          step = { kind: 'already', cost: (await getQuote(quoteId))?.channelPointsCost ?? 0 };
+        } else {
+          throw err;
+        }
+      }
+
+      if (step.kind === 'expired') {
+        await refreshQuoteCache(quoteId);
+        emitRealtime(channelId, 'quote:canceled', { quoteId, reason: 'quote expired' });
+        throw new AppError('quote_expired', 'Расчёт устарел. Выбери точку заново', 409);
+      }
+      if (step.kind === 'price_changed') {
+        await refreshQuoteCache(quoteId);
+        emitRealtime(channelId, 'quote:canceled', { quoteId, reason: 'price changed' });
+        throw new AppError('price_changed', 'Цена изменилась. Выбери точку заново', 409, {
+          quoted: step.quoted,
+          current: step.current,
+        });
+      }
+      if (step.kind === 'already') {
+        const waypoint = await getWaypointByQuote(quoteId);
+        if (!waypoint) throw new AppError('quote_conflict', 'Этот расчёт уже использован', 409);
+        return {
+          ok: true,
+          charged: false,
+          waypoint: viewerCopy(toView(waypoint, null), settings),
+          waypointStatus:
+            waypoint.status === 'COMPLETED' || waypoint.status === 'CANCELED' ? waypoint.status : 'ACTIVE',
+          balance: await getBalance(channelId, twitchUserId),
+          cost: step.cost,
+        };
+      }
+
+      // Committed. Side effects only from here, and none of them may turn a
+      // completed purchase into an error response.
+      const { waypoint, cost, balance, transactionId } = step;
+      const view = toView(waypoint, null);
+      try {
+        await primeLiveNav(waypoint);
+        await refreshQuoteCache(quoteId);
+      } catch (err) {
+        logger.warn({ err, waypointId: waypoint.id }, 'post-purchase cache update failed');
+      }
+      emitRealtime(channelId, 'waypoint:activated', view, 'trusted');
+      emitRealtime(channelId, 'waypoint:activated', viewerCopy(view, settings), 'viewers');
+      emitToViewer(channelId, twitchUserId, 'wallet:updated', {
+        type: 'WAYPOINT_DEBIT',
+        amount: -cost,
+        balance,
+        transactionId,
+      });
+      emitRealtime(
+        channelId,
+        'waypoint:purchased',
+        { waypointId: waypoint.id, quoteId, userId: twitchUserId, cost, currency: 'GTA_DOLLAR' },
+        'trusted',
+      );
+      logger.info(
+        { waypointId: waypoint.id, quoteId, user: twitchUserId, cost, balance },
+        'waypoint bought with GTA$',
+      );
+
+      return {
+        ok: true,
+        charged: true,
+        waypoint: viewerCopy(view, settings),
+        waypointStatus: 'ACTIVE',
+        balance,
+        cost,
+      };
+    },
+    {
+      ttlMs: 20_000,
+      waitMs: 10_000,
+      onBusy: () => new AppError('rate_limited', 'Подожди секунду и попробуй снова', 429),
+    },
+  );
+}
+
 /** Everything the extension needs in one round trip. */
-export async function buildViewerState(channelId: string, identityLinked: boolean) {
+export async function buildViewerState(
+  channelId: string,
+  identityLinked: boolean,
+): Promise<ViewerStatePayload> {
   const settings = await getSettings(channelId);
-  const [gps, waypoint, slots] = await Promise.all([
+  const [gps, waypoint, slots, economy] = await Promise.all([
     getPublicGps(channelId, settings),
     getActiveWaypoint(channelId),
     countFreeSlots(channelId, settings.rewardSlotPoolSize),
+    getEconomyInfo(channelId, settings),
   ]);
 
   const activeWaypoint = waypoint ? await getActiveWaypointView(channelId) : null;
@@ -298,5 +580,7 @@ export async function buildViewerState(channelId: string, identityLinked: boolea
       quoteTtlSeconds: settings.quoteTtlSeconds,
     },
     slots,
+    paymentMode: paymentMode(),
+    economy,
   };
 }

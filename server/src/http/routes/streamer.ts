@@ -5,7 +5,7 @@ import { env } from '../../env.js';
 import { query } from '../../db/pool.js';
 import { getSettings } from '../../domain/settings.js';
 import { getGpsState } from '../../domain/gps.js';
-import { completeWaypoint, getActiveWaypointView } from '../../domain/waypoints.js';
+import { cancelWaypoint, completeWaypoint, getActiveWaypointView } from '../../domain/waypoints.js';
 import { emitSlotCounts } from '../../domain/waypointFlow.js';
 import { AppError } from '../../domain/types.js';
 import {
@@ -20,6 +20,13 @@ const pairSchema = z.object({
   code: z.string().min(1).max(200),
   label: z.string().max(60).optional(),
 });
+
+const cancelSchema = z.object({ reason: z.enum(['cannot', 'unsafe']) });
+
+const CANCEL_REASONS: Record<z.infer<typeof cancelSchema>['reason'], string> = {
+  cannot: 'streamer cannot get there',
+  unsafe: 'unsafe for the streamer',
+};
 
 export async function registerStreamerRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -70,6 +77,26 @@ export async function registerStreamerRoutes(app: FastifyInstance): Promise<void
     if (!waypoint) throw new AppError('not_found', 'Нет активной точки', 404);
     await emitSlotCounts(claims.channelId);
     return { ok: true, waypointId: waypoint.id };
+  });
+
+  /**
+   * НЕ МОГУ / НЕБЕЗОПАСНО: the streamer drops the job, and a viewer who paid
+   * GTA$ gets them back — once, in the same transaction as the cancel. The
+   * complete button (ДОШЁЛ) never refunds.
+   */
+  app.post('/api/streamer/waypoint/cancel', async (req) => {
+    const claims = await requireDevice(req);
+    const { reason } = cancelSchema.parse(req.body ?? {});
+    const canceled = await cancelWaypoint(claims.channelId, CANCEL_REASONS[reason], {
+      refundGta: true,
+    });
+    if (!canceled) throw new AppError('not_found', 'Нет активной точки', 404);
+    await emitSlotCounts(claims.channelId);
+    return {
+      ok: true,
+      refunded: canceled.refund?.refunded === true,
+      amount: canceled.refund?.amount ?? 0,
+    };
   });
 
   app.post('/api/streamer/unpair', async (req) => {

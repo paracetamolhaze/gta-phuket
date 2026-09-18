@@ -84,6 +84,10 @@ export class ApiClient {
 /** Russian copy for every error the viewer can actually hit. */
 const VIEWER_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   needs_id_share: 'Нужно поделиться Twitch-аккаунтом, чтобы засчитать оплату',
+  needs_login: 'Войдите в Twitch, чтобы использовать GTA$',
+  insufficient_funds: 'Не хватает GTA$. Пополните баланс',
+  price_changed: 'Цена изменилась. Выберите точку заново',
+  payment_mode: 'Способ оплаты изменился. Выберите точку заново',
   rate_limited: 'Слишком часто. Подожди пару секунд',
   gps_unavailable: 'GPS временно недоступен',
   waypoints_closed: 'Приём точек сейчас закрыт',

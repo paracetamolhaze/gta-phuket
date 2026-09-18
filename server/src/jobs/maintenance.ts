@@ -7,6 +7,7 @@ import { emitSlotCounts, expireStaleQuotes } from '../domain/waypointFlow.js';
 import { query } from '../db/pool.js';
 import { getSlot, releaseSlot } from '../domain/slots.js';
 import { pruneEventSubEvents, retryPendingEvents } from '../twitch/eventsub.js';
+import { retryPendingFulfillments } from '../twitch/exchangeReward.js';
 import { broadcastGpsStale } from '../realtime/gpsBroadcast.js';
 import { pruneExtDiagnostics } from '../diag/store.js';
 
@@ -14,6 +15,7 @@ const QUOTE_SWEEP_MS = 5000;
 const EVENT_RETRY_MS = 15_000;
 const GPS_WATCH_MS = 5000;
 const SLOT_REAP_MS = 30_000;
+const FULFILLMENT_RETRY_MS = 60_000;
 const RETENTION_MS = 60 * 60 * 1000;
 // Far more often than the hourly sweep: the diagnostics endpoint is open to
 // anyone, so its row cap has to hold between sweeps, not just once an hour.
@@ -64,6 +66,19 @@ export function startMaintenanceJobs(channelId: string): void {
         })
         .catch((err) => logger.debug({ err }, 'eventsub retry sweep failed'));
     }, EVENT_RETRY_MS),
+  );
+
+  // A GTA$ credit is committed before Twitch is told to keep the ETH. When
+  // that call fails the credit still stands, and this finishes the job: every
+  // minute, up to MAX_FULFILLMENT_ATTEMPTS, then FAILED for the admin.
+  timers.push(
+    setInterval(() => {
+      void retryPendingFulfillments(channelId, 30, 20)
+        .then((n) => {
+          if (n) logger.warn({ count: n }, 'retried exchange fulfilments');
+        })
+        .catch((err) => logger.debug({ err }, 'exchange fulfilment sweep failed'));
+    }, FULFILLMENT_RETRY_MS),
   );
 
   timers.push(

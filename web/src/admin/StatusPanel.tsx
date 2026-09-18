@@ -7,6 +7,7 @@ import {
   formatCountdown,
   formatDistance,
   formatDuration,
+  formatGta,
   formatPoints,
 } from '../shared/format';
 import type { GpsState, GpsStatus, QuoteStatus, SlotStatus } from '../shared/types';
@@ -226,7 +227,12 @@ function WaypointBlock({
         </Cell>
         <Cell label="В пути">{formatCountdown(elapsed)}</Cell>
         <Cell label="Оплатил">{waypoint.paidBy ?? '—'}</Cell>
-        <Cell label="Баллов">{formatPoints(waypoint.channelPointsPaid)}</Cell>
+        {/* A GTA$ waypoint stores its GTA$ cost in the points field (GTA_DOLLAR_ECONOMY.md §6). */}
+        {waypoint.currency === 'GTA_DOLLAR' ? (
+          <Cell label="Оплачено">{formatGta(waypoint.channelPointsPaid)}</Cell>
+        ) : (
+          <Cell label="Баллов">{formatPoints(waypoint.channelPointsPaid)}</Cell>
+        )}
         <Cell label="Цель" mono wide>
           {waypoint.destination.lat.toFixed(5)}, {waypoint.destination.lng.toFixed(5)}
         </Cell>
@@ -339,7 +345,9 @@ function QuotesBlock({ quotes, now }: { quotes: AdminQuoteRow[]; now: number }):
                     <td className="ad-ellipsis" title={quote.destinationName}>
                       {quote.destinationName}
                     </td>
-                    <td className="is-right num">{formatPoints(quote.cost)}</td>
+                    <td className="is-right num">
+                      {quote.currency === 'GTA_DOLLAR' ? formatGta(quote.cost) : formatPoints(quote.cost)}
+                    </td>
                     <td className="ad-ellipsis">{quote.twitchUserName ?? '—'}</td>
                     <td className="is-right num">
                       {live && left > 0 ? formatCountdown(left) : formatClock(quote.expiresAt)}

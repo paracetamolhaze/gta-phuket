@@ -514,7 +514,8 @@ body.page-admin {
   color: var(--danger);
 }
 
-.ad-diag-err {
+.ad-diag-err,
+.ad-econ-err {
   margin: -4px 0 10px;
   font-size: 11px;
   line-height: 1.45;
@@ -661,6 +662,74 @@ body.page-admin {
 .ad-pill.is-redirect {
   color: var(--player);
   border-color: rgba(69, 224, 192, 0.4);
+}
+
+/* --- gta dollar economy ------------------------------------------------- */
+
+/* Same scoped tone words as the diagnostics panel. */
+.ad-econ .is-ok {
+  color: var(--ok);
+}
+
+.ad-econ .is-warn {
+  color: var(--accent);
+}
+
+.ad-econ .is-bad {
+  color: var(--danger);
+}
+
+/* The rate is the one number every other figure on the panel derives from. */
+.ad-econ-hero {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 2px;
+}
+
+.ad-econ-rate {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.ad-econ .ad-warn + .ad-warn {
+  margin-top: 8px;
+}
+
+/* Every block is ruled off, the first one under the rate and alerts included. */
+.ad-econ .ad-group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.ad-econ .ad-group .ad-warn {
+  margin-top: 10px;
+}
+
+.ad-econ-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ad-econ-row .btn {
+  min-height: 44px;
+  font-size: 12px;
+}
+
+.ad-econ .ad-table-wrap {
+  max-height: 340px;
+}
+
+/* Timestamps and amounts stay on one line; the wrapper scrolls on a phone. */
+.ad-econ-table td {
+  white-space: nowrap;
 }
 
 /* --- forms -------------------------------------------------------------- */

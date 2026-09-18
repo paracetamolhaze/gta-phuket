@@ -214,6 +214,16 @@ services:
       REDIS_URL: redis://redis:6379/1
       DEV_MODE: 'true'
       REAL_TWITCH: 'false'
+      # .env carries the live Twitch application and channel. Tests must never
+      # reach them: with a client id and secret set the local Helix stub is
+      # bypassed, and every reward or EventSub call would hit the real channel.
+      TWITCH_CLIENT_ID: ''
+      TWITCH_CLIENT_SECRET: ''
+      TWITCH_EXT_CLIENT_ID: ''
+      TWITCH_CHANNEL_ID: '900000001'
+      TWITCH_EXT_SECRET: 'dGVzdC1leHRlbnNpb24tc2VjcmV0LTEyMzQ1'
+      TWITCH_EVENTSUB_SECRET: 'test-eventsub-secret-0123456789'
+      PUBLIC_API_URL: 'https://localhost:8080'
     depends_on:
       postgres:
         condition: service_healthy

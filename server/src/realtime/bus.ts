@@ -15,6 +15,17 @@ export interface RealtimeTransport {
     payload: RealtimeEvents[K],
     audience: Audience,
   ): void;
+  /**
+   * One viewer only: the sockets that proved, with a verified extension JWT,
+   * that they are this numeric Twitch user. Wallet events go here and nowhere
+   * else, because a balance is nobody else's business.
+   */
+  emitToViewer<K extends RealtimeEventName>(
+    channelId: string,
+    userId: string,
+    event: K,
+    payload: RealtimeEvents[K],
+  ): void;
 }
 
 let transport: RealtimeTransport | null = null;
@@ -36,4 +47,13 @@ export function emitRealtime<K extends RealtimeEventName>(
   audience: Audience = 'all',
 ): void {
   transport?.emit(channelId, event, payload, audience);
+}
+
+export function emitToViewer<K extends RealtimeEventName>(
+  channelId: string,
+  userId: string,
+  event: K,
+  payload: RealtimeEvents[K],
+): void {
+  transport?.emitToViewer(channelId, userId, event, payload);
 }

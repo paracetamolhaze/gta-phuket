@@ -27,6 +27,8 @@ Anything the client sends about identity is ignored.
 | `POST` | `/api/ext/quote/:id/confirm` | – | `QuoteView` (status `AWAITING_REDEMPTION`, `rewardTitle` set) |
 | `POST` | `/api/ext/quote/:id/cancel` | – | `{ ok: true }` |
 | `GET` | `/api/ext/quote/:id` | – | `QuoteView` |
+| `GET` | `/api/ext/wallet` | – | `WalletView` (the token's own GTA$ wallet) |
+| `POST` | `/api/ext/waypoints/purchase` | `{ quoteId }` | `{ ok, charged, waypoint, waypointStatus, balance, cost }` |
 | `GET` | `/api/ext/broadcaster/status` | – | broadcaster-only status (see below) |
 
 `GET /api/ext/broadcaster/status` backs `config.html`, the Twitch Config
@@ -59,6 +61,12 @@ charged at this point** — it only rewrites a Twitch Custom Reward and waits.
 
 Price and distance are computed server-side and are never read from the request.
 
+The GTA DOLLAR economy (`WAYPOINT_PAYMENT_MODE=gta_dollar`, the default) —
+wallet, one-click purchase, refunds, the exchange reward, their error codes
+and realtime events — is specified in full in
+[GTA_DOLLAR_ECONOMY.md](GTA_DOLLAR_ECONOMY.md). In that mode
+`POST /api/ext/quote/:id/confirm` answers `409 payment_mode`.
+
 ---
 
 ## Streamer PWA — `/api/streamer/*`
@@ -68,6 +76,7 @@ Price and distance are computed server-side and are never read from the request.
 | `POST` | `/api/streamer/pair` | – | `{ code, label? }` | `{ deviceToken, channelId }` |
 | `GET` | `/api/streamer/state` | device | – | `{ gps: GpsState, activeWaypoint, waypointsOpen }` |
 | `POST` | `/api/streamer/waypoint/complete` | device | – | `{ ok: true }` |
+| `POST` | `/api/streamer/waypoint/cancel` | device | `{ reason: 'cannot' \| 'unsafe' }` | `{ ok, refunded, amount }` |
 
 GPS itself goes over the socket (below), not HTTP.
 
@@ -81,14 +90,18 @@ token stored in the phone's `localStorage` and replayed on reconnect.
 | Method | Path | Body | Returns |
 | --- | --- | --- | --- |
 | `POST` | `/api/admin/login` | `{ password }` | `{ token }` |
-| `GET` | `/api/admin/state` | – | `{ gps: GpsState, activeWaypoint, settings, slots, quotes, oauth }` |
+| `GET` | `/api/admin/state` | – | `{ gps: GpsState, activeWaypoint, settings, slots, quotes, oauth, paymentMode }` |
 | `GET` | `/api/admin/settings` | – | `ChannelSettings` |
 | `PUT` | `/api/admin/settings` | `Partial<ChannelSettings>` | `ChannelSettings` |
 | `POST` | `/api/admin/waypoints/open` | – | `{ ok: true }` |
 | `POST` | `/api/admin/waypoints/close` | – | `{ ok: true }` |
 | `POST` | `/api/admin/waypoint/complete` | – | `{ ok: true }` |
 | `POST` | `/api/admin/waypoint/cancel` | `{ reason?, refund? }` | `{ ok: true, refunded: boolean }` |
-| `POST` | `/api/admin/waypoint/clear` | – | `{ ok: true }` |
+| `POST` | `/api/admin/waypoint/clear` | – | `{ ok: true, refunded, amount }` (a GTA$ job is always refunded) |
+| `GET` | `/api/admin/economy` | – | GTA DOLLAR ECONOMY panel data |
+| `PUT` | `/api/admin/economy` | `{ gtaDollarsPerChannelPoint?, exchangeRewardCost? }` | same as `GET` |
+| `POST` | `/api/admin/economy/exchange-reward/sync` | – | `{ action, reward }` |
+| `POST` | `/api/admin/economy/adjust` | `{ twitchUserId, amount, reason }` | `{ ok, transactionId, balance }` |
 | `POST` | `/api/admin/slots/sync` | – | `{ created, updated, total }` |
 | `POST` | `/api/admin/eventsub/sync` | – | `{ subscriptions }` |
 

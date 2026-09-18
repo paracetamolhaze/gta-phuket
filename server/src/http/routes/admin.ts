@@ -4,7 +4,7 @@ import { env } from '../../env.js';
 import { logger } from '../../logger.js';
 import { query } from '../../db/pool.js';
 import { getGpsState } from '../../domain/gps.js';
-import { getSettings, saveSettings, settingsPatchSchema, setWaypointsOpen } from '../../domain/settings.js';
+import { getSettings, settingsPatchSchema, setWaypointsOpen } from '../../domain/settings.js';
 import { listRecentQuotes } from '../../domain/quotes.js';
 import { countFreeSlots } from '../../domain/slots.js';
 import { listSlots, ensureRewardPool } from '../../twitch/rewards.js';
@@ -18,8 +18,25 @@ import { emitSlotCounts, releaseQuoteResources } from '../../domain/waypointFlow
 import { getQuote } from '../../domain/quotes.js';
 import { loadBroadcasterTokens } from '../../twitch/tokens.js';
 import { ensureEventSubSubscriptions } from '../../twitch/eventsub.js';
-import { listEventSubSubscriptions, updateRedemptionStatus } from '../../twitch/helix.js';
-import { emitRealtime } from '../../realtime/bus.js';
+import {
+  getCustomReward,
+  listEventSubSubscriptions,
+  updateRedemptionStatus,
+} from '../../twitch/helix.js';
+import {
+  ensureExchangeReward,
+  getExchangeReward,
+  saveSettingsWithExchangeTerms,
+} from '../../twitch/exchangeReward.js';
+import { emitRealtime, emitToViewer } from '../../realtime/bus.js';
+import { paymentMode } from '../../domain/paymentMode.js';
+import {
+  adjustBalance,
+  checkLedgerConsistency,
+  economyTotals,
+  fulfillmentCounts,
+  listRecentLedger,
+} from '../../domain/wallet.js';
 import { AppError } from '../../domain/types.js';
 import { checkAdminPassword, obsUrl, requireAdmin, signAdminToken } from '../auth.js';
 import { useDevHelix } from '../../twitch/devHelix.js';
@@ -33,6 +50,78 @@ const cancelSchema = z.object({
   reason: z.string().max(200).optional(),
   refund: z.boolean().optional(),
 });
+
+const economyPatchSchema = z
+  .object({
+    gtaDollarsPerChannelPoint: z.number().int().min(1).max(1000),
+    exchangeRewardCost: z.number().int().min(1).max(1_000_000),
+  })
+  .partial()
+  .strict();
+
+const adjustSchema = z.object({
+  twitchUserId: z.string().regex(/^[0-9]{1,20}$/),
+  amount: z
+    .number()
+    .int()
+    .min(-1_000_000_000)
+    .max(1_000_000_000)
+    .refine((v) => v !== 0, 'amount must not be zero'),
+  reason: z.string().min(1).max(200),
+});
+
+/** The GTA DOLLAR ECONOMY panel, in one read. */
+async function economyView(channelId: string) {
+  const settings = await getSettings(channelId);
+  const [stored, totals, ledger, fulfilments, recent] = await Promise.all([
+    getExchangeReward(channelId),
+    economyTotals(channelId),
+    checkLedgerConsistency(channelId),
+    fulfillmentCounts(channelId),
+    listRecentLedger(channelId, 20),
+  ]);
+
+  // Enabled is Twitch's state, not ours, so it is read live. Not being able to
+  // ask is reported as such (null, and the reason) rather than dressed up as
+  // "disabled".
+  let reward: { id: string; title: string; cost: number; enabledOnTwitch: boolean | null } | null =
+    null;
+  let rewardCheckError: string | null = null;
+  if (stored) {
+    let enabledOnTwitch: boolean | null = null;
+    try {
+      enabledOnTwitch = (await getCustomReward(channelId, stored.twitchRewardId))?.is_enabled === true;
+    } catch (err) {
+      rewardCheckError = (err as Error).message;
+    }
+    reward = { id: stored.twitchRewardId, title: stored.title, cost: stored.cost, enabledOnTwitch };
+  }
+
+  const rewardCost = stored?.cost ?? settings.exchangeRewardCost;
+  return {
+    paymentMode: paymentMode(),
+    exchangeRate: settings.gtaDollarsPerChannelPoint,
+    reward,
+    gtaPerRedemption: rewardCost * settings.gtaDollarsPerChannelPoint,
+    totals,
+    ledgerConsistent: ledger.consistent,
+    pendingFulfillments: fulfilments.pending,
+    failedFulfillments: fulfilments.failed,
+    canceledExternally: fulfilments.canceledExternally,
+    recent: recent.map((t) => ({
+      createdAt: new Date(t.createdAt).toISOString(),
+      type: t.type,
+      amount: t.amount,
+      twitchUserId: t.twitchUserId,
+      balanceAfter: t.balanceAfter,
+    })),
+    settings: {
+      gtaDollarsPerChannelPoint: settings.gtaDollarsPerChannelPoint,
+      exchangeRewardCost: settings.exchangeRewardCost,
+    },
+    rewardCheckError,
+  };
+}
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/admin/login', async (req) => {
@@ -95,12 +184,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         status: q.status,
         destinationName: q.destinationName,
         cost: q.channelPointsCost,
+        currency: q.currency,
         twitchUserName: q.twitchUserName ?? q.twitchUserId,
         distanceMeters: Math.round(q.routeDistanceMeters),
         createdAt: q.createdAt,
         expiresAt: q.expiresAt,
       })),
       obsUrl: obsUrl(),
+      // The unit the pricing settings are in: GTA$ or Channel Points.
+      paymentMode: paymentMode(),
       oauth: {
         connected: Boolean(tokens),
         devStub: useDevHelix(),
@@ -123,7 +215,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const patch = settingsPatchSchema.parse(req.body);
     const channelId = channel();
     const before = await getSettings(channelId);
-    const settings = await saveSettings(channelId, patch);
+    const settings = await saveSettingsWithExchangeTerms(channelId, patch);
 
     // Growing the pool needs new rewards on Twitch before they can be leased.
     if (patch.rewardSlotPoolSize && patch.rewardSlotPoolSize !== before.rewardSlotPoolSize) {
@@ -174,6 +266,22 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const active = await getActiveWaypoint(channelId);
     if (!active) throw new AppError('not_found', 'Нет активной точки', 404);
 
+    // A GTA$ waypoint has no redemption behind it: the refund is a ledger
+    // entry, booked once, in the same transaction as the cancel.
+    if (active.currency === 'GTA_DOLLAR') {
+      const canceled = await cancelWaypoint(channelId, body.reason ?? 'canceled by admin', {
+        refundGta: body.refund === true,
+      });
+      if (!canceled) throw new AppError('not_found', 'Нет активной точки', 404);
+      await emitSlotCounts(channelId);
+      return {
+        ok: true,
+        refunded: canceled.refund?.refunded === true,
+        refundError: null,
+        amount: canceled.refund?.amount ?? 0,
+      };
+    }
+
     let refunded = false;
     let refundError: string | null = null;
 
@@ -207,12 +315,21 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, refunded, refundError };
   });
 
-  /** Drop the route without touching payment state. */
+  /**
+   * Drop the route. Channel Points are left alone (that refund is a Twitch
+   * call, and a reset must not depend on Twitch answering), but GTA$ are not:
+   * a GTA$ job is a ledger entry away from being paid back, and an emergency
+   * reset is no reason for a viewer to lose money for a job that never
+   * happened. The refund's unique index keeps it once-only. Cancelling a GTA$
+   * job without a refund stays possible, deliberately, through the cancel.
+   */
   app.post('/api/admin/waypoint/clear', async (req) => {
     requireAdmin(req);
     const channelId = channel();
     const active = await getActiveWaypoint(channelId);
-    if (active) await cancelWaypoint(channelId, 'cleared by admin');
+    const canceled = active
+      ? await cancelWaypoint(channelId, 'cleared by admin', { refundGta: true })
+      : null;
 
     // Any quote still waiting for payment is released too, so the pool is clean.
     const pending = await listRecentQuotes(channelId, 50);
@@ -222,7 +339,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     await emitSlotCounts(channelId);
-    return { ok: true };
+    return {
+      ok: true,
+      refunded: canceled?.refund?.refunded === true,
+      amount: canceled?.refund?.amount ?? 0,
+    };
   });
 
   app.post('/api/admin/slots/sync', async (req) => {
@@ -237,6 +358,47 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/admin/eventsub/sync', async (req) => {
     requireAdmin(req);
     return ensureEventSubSubscriptions(channel());
+  });
+
+  // ---- GTA DOLLAR economy -------------------------------------------------
+
+  app.get('/api/admin/economy', async (req) => {
+    requireAdmin(req);
+    return economyView(channel());
+  });
+
+  app.put('/api/admin/economy', async (req) => {
+    requireAdmin(req);
+    const patch = economyPatchSchema.parse(req.body ?? {});
+    const channelId = channel();
+    const settings = await saveSettingsWithExchangeTerms(channelId, patch);
+    emitRealtime(channelId, 'settings:update', settings, 'trusted');
+    return economyView(channelId);
+  });
+
+  app.post('/api/admin/economy/exchange-reward/sync', async (req) => {
+    requireAdmin(req);
+    return ensureExchangeReward(channel());
+  });
+
+  /**
+   * Manual ledger correction, e.g. taking back GTA$ whose exchange redemption
+   * a moderator cancelled on Twitch (never done automatically). Not one of the
+   * contract's endpoints, but the only honest way to act on that alert.
+   */
+  app.post('/api/admin/economy/adjust', async (req) => {
+    requireAdmin(req);
+    const body = adjustSchema.parse(req.body ?? {});
+    const channelId = channel();
+    const result = await adjustBalance({ channelId, ...body });
+    emitToViewer(channelId, body.twitchUserId, 'wallet:updated', {
+      type: 'ADMIN_ADJUSTMENT',
+      amount: body.amount,
+      balance: result.balance,
+      transactionId: result.transactionId,
+    });
+    logger.info({ user: body.twitchUserId, amount: body.amount }, 'GTA$ adjusted by admin');
+    return { ok: true, ...result };
   });
 
   app.get('/api/admin/quote/:id', async (req) => {

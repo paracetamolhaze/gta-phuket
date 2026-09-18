@@ -20,6 +20,40 @@ export function formatPoints(points: number | null | undefined): string {
   return points.toLocaleString('ru-RU');
 }
 
+// ---------------------------------------------------------------------------
+// GTA DOLLAR
+// ---------------------------------------------------------------------------
+
+const NBSP = ' ';
+
+/**
+ * An integer grouped by three with a non-breaking space: 850, 1 250, 25 000.
+ *
+ * Written out by hand rather than via toLocaleString('ru-RU'): engines
+ * disagree on the separator (U+00A0 or U+202F) and on whether four-digit
+ * numbers are grouped at all, and every surface must print the same "1 250".
+ */
+export function formatInteger(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  const value = Math.round(n);
+  const digits = String(Math.abs(value)).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  return value < 0 ? `−${digits}` : digits;
+}
+
+/**
+ * `GTA$ 5 000` — the one way a GTA DOLLAR amount is shown anywhere. Never
+ * `$5,000`: that reads as real money, which this is not.
+ */
+export function formatGta(n: number | null | undefined): string {
+  return `GTA$ ${formatInteger(n)}`;
+}
+
+/** A ledger movement: `+5 000 GTA$`, `−1 500 GTA$`. */
+export function formatGtaDelta(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '— GTA$';
+  return `${n > 0 ? '+' : ''}${formatInteger(n)} GTA$`;
+}
+
 export function formatCountdown(msLeft: number): string {
   const s = Math.max(0, Math.ceil(msLeft / 1000));
   const m = Math.floor(s / 60);

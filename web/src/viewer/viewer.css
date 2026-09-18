@@ -691,6 +691,328 @@ body.page-viewer #root {
   color: var(--text-faint);
 }
 
+/* ------------------------------------------------------------ GTA$ quote card */
+
+.cardMeta {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.gtaPrice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--hairline);
+}
+
+.gtaRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.gtaRowValue {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.gtaRow--price .gtaRowValue {
+  font-size: 18px;
+  color: var(--accent);
+}
+
+/* "ОТПРАВИТЬ СТРИМЕРА — GTA$ 12 500" is long for a phone: let the label wrap,
+   never the amount. */
+.gtaBuy {
+  flex-wrap: wrap;
+  column-gap: 0.4em;
+  row-gap: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.gtaAmount {
+  white-space: nowrap;
+}
+
+.gtaShort {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--radius-s);
+  background: rgba(255, 107, 94, 0.08);
+  border: 1px solid rgba(255, 107, 94, 0.26);
+}
+
+.gtaShortText {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- GTA$ wallet */
+
+/* Top-right of the open map: the balance, and under it whatever the balance
+   is currently saying (the top-up dialog, a credit toast). Only its children
+   take clicks, so the map around them stays pannable.
+
+   No z-index of its own, so each child is layered against the card sheet
+   (z-index 3) separately: on a short phone panel a tall card reaches the top
+   of the map, and there the card must win over the chip — the chip would
+   otherwise hide the card's title and catch the taps meant for its ×. The
+   dialog and the toast stay above the card: the dialog is opened from it. */
+.walletDock {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: calc(100% - 20px);
+  pointer-events: none;
+}
+
+.walletDock > * {
+  z-index: 5;
+  pointer-events: auto;
+}
+
+/* Under the card sheet, over the map and the hint pill. */
+.walletDock > .walletChip {
+  z-index: 2;
+}
+
+.walletChip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+}
+
+.walletChip--prompt {
+  max-width: 320px;
+  padding: 7px 7px 7px 14px;
+  border-radius: var(--radius-m);
+}
+
+.walletBalance {
+  font-size: 15px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.walletPrompt {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-dim);
+}
+
+.walletChip--note {
+  padding-right: 14px;
+}
+
+.walletBtn {
+  flex: none;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-strong);
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.walletBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.walletBtn:active {
+  transform: translateY(1px);
+}
+
+.walletBtn--accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+.walletBtn--accent:hover {
+  background: #ffcf6b;
+}
+
+.walletBtn:focus-visible,
+.topUpClose:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The dialog only says where to go. An extension cannot open Twitch's
+   Rewards tray, and nothing here pretends it can. */
+.topUp {
+  width: 300px;
+  max-width: 100%;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topUpHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.topUpTitle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.topUpClose {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin: -6px -8px -6px 0;
+  border-radius: var(--radius-s);
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.topUpClose:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.topUpText {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.topUpReward {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.topUpRate {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.topUpHint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
+.topUpHint--bad {
+  color: var(--danger);
+}
+
+.topUpCredit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.topUpCreditAmount {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ok);
+  white-space: nowrap;
+}
+
+.topUpCreditBalance {
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.topUpDone {
+  margin-top: 8px;
+  min-height: 40px;
+}
+
+/* Informational only: never takes a click, never covers the trigger. */
+.walletToast {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  pointer-events: none;
+  border-color: rgba(88, 211, 140, 0.35);
+  animation: walletToastIn 180ms ease-out;
+}
+
+.walletDock > .walletToast {
+  pointer-events: none;
+}
+
+.walletToastAmount {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ok);
+  white-space: nowrap;
+}
+
+.walletToastBalance {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* Collapsed overlay: above the trigger and the task pill that sits on it, so
+   neither moves and neither is covered. */
+.walletToast--collapsed {
+  position: absolute;
+  left: var(--trigger-left);
+  bottom: calc(100% - var(--trigger-top) + 42px);
+  max-width: 60%;
+}
+
+@keyframes walletToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* With the wallet in the top-right corner, the idle hint moves to the left
+   instead of running underneath it. */
+.walletDock ~ .hintPill {
+  left: 10px;
+  transform: none;
+  max-width: calc(100% - 360px);
+  text-align: left;
+}
+
 .skel {
   border-radius: 6px;
   background: linear-gradient(
@@ -775,6 +1097,40 @@ body.page-viewer #root {
   font-size: 11px;
 }
 
+/* A phone has no room for both along the top edge. The hint only shows while
+   there is no card, so the bottom is free for it. */
+.viewer[data-mobile='true'] .walletDock ~ .hintPill {
+  top: auto;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 82%;
+  text-align: center;
+}
+
+.viewer[data-mobile='true'] .walletDock {
+  top: 8px;
+  right: 8px;
+  max-width: calc(100% - 16px);
+}
+
+.viewer[data-mobile='true'] .walletBtn {
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.viewer[data-mobile='true'] .topUpClose {
+  width: 44px;
+  height: 44px;
+}
+
+/* Just above the mobile bar. */
+.viewer[data-mobile='true'] .walletToast--collapsed {
+  left: 8px;
+  bottom: 80px;
+  max-width: calc(100% - 16px);
+}
+
 @media (max-width: 420px) {
   .statRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -786,7 +1142,8 @@ body.page-viewer #root {
 
 @media (prefers-reduced-motion: reduce) {
   .mapPlayerHalo,
-  .skel {
+  .skel,
+  .walletToast {
     animation: none;
   }
   .overlay {

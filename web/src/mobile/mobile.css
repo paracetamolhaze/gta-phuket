@@ -38,6 +38,13 @@ body.page-mobile #root {
   padding: 10px 12px 10px 16px;
 }
 
+/* A GTA$ credit toast sits just above that bar, clear of the thumb. */
+.page-mobile .viewer[data-mobile='true'] .walletToast--collapsed {
+  left: 12px;
+  bottom: calc(88px + env(safe-area-inset-bottom));
+  max-width: calc(100% - 24px);
+}
+
 .page-mobile .mobileBtn {
   min-height: 48px;
   min-width: 112px;

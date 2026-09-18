@@ -7,6 +7,7 @@ import { K } from '../redis/keys.js';
 import { withLock } from '../redis/lock.js';
 import { emitRealtime } from '../realtime/bus.js';
 import { getSettings } from '../domain/settings.js';
+import { paymentMode } from '../domain/paymentMode.js';
 import { sanitizeRouteGeometry } from '../domain/privacy.js';
 import { getQuote, getQuoteBySlot, setQuoteStatus } from '../domain/quotes.js';
 import {
@@ -29,6 +30,7 @@ import {
   updateRedemptionStatus,
 } from './helix.js';
 import { releaseSlotReward } from './rewards.js';
+import { creditExchangeRedemption, getExchangeRewardId } from './exchangeReward.js';
 
 export const MESSAGE_TYPE_HEADER = 'twitch-eventsub-message-type';
 export const MESSAGE_ID_HEADER = 'twitch-eventsub-message-id';
@@ -132,6 +134,7 @@ export async function claimMessage(
 // ---------------------------------------------------------------------------
 
 export type RedemptionOutcome =
+  | { result: 'credited'; transactionId: string; amount: number; balance: number }
   | { result: 'activated'; waypointId: string; quoteId: string }
   | { result: 'refunded'; reason: string; quoteId: string | null }
   | { result: 'ignored'; reason: string }
@@ -221,7 +224,9 @@ async function refund(
 }
 
 /**
- * The single place a waypoint can become ACTIVE.
+ * Route one redemption: the GTA$ exchange first, then (legacy mode only) the
+ * slot pool — the single place a Channel Points payment can make a waypoint
+ * ACTIVE.
  *
  * Nothing here trusts the extension: the quote, its price, its owner and its
  * deadline all come from our own database, and the fact of payment comes from
@@ -232,6 +237,21 @@ export async function handleRedemption(event: RedemptionEvent): Promise<Redempti
 
   if (env.TWITCH_CHANNEL_ID && channelId !== env.TWITCH_CHANNEL_ID) {
     return { result: 'ignored', reason: 'redemption for another channel' };
+  }
+
+  // The exchange reward is recognised by its stored id only. It is handled
+  // before the Redis redemption marker below on purpose: a credit that fails
+  // must be re-run by the event retry, and the ledger's unique redemption id
+  // (not a cache key) is what makes that re-run safe.
+  const exchangeRewardId = await getExchangeRewardId(channelId);
+  if (exchangeRewardId && event.rewardId === exchangeRewardId) {
+    return creditExchangeRedemption(channelId, event);
+  }
+
+  if (paymentMode() !== 'channel_points_reward') {
+    // Waypoints are paid in GTA$. Any other redemption on the channel —
+    // including a stale slot reward — is not ours to fulfil or refund.
+    return { result: 'ignored', reason: 'not the exchange reward (payment mode gta_dollar)' };
   }
 
   // A second delivery of the same redemption must never do work twice.
@@ -497,6 +517,16 @@ export async function processStoredEvent(input: {
     // audit trail; the waypoint itself is driven by the add event.
     const event = parseRedemption(input.messageId, input.payload.event);
     if (!event) return;
+    const channelId = event.broadcasterUserId || env.TWITCH_CHANNEL_ID;
+    if (event.rewardId === (await getExchangeRewardId(channelId))) {
+      // Logged only. The GTA$ credit stands; if this was a cancellation, the
+      // fulfilment attempt finds out and flags it for the admin.
+      logger.info(
+        { redemption: event.redemptionId, status: event.status, user: event.userId },
+        'exchange redemption status updated externally',
+      );
+      return;
+    }
     await query('UPDATE twitch_redemptions SET resolution = $2 WHERE id = $1', [
       event.redemptionId,
       event.status.toUpperCase(),

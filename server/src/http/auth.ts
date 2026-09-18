@@ -18,10 +18,17 @@ export function requireExtIdentity(req: FastifyRequest): ExtIdentity {
 
 /**
  * A redemption arrives with a real Twitch user id, so a quote can only be
- * matched back to its buyer if the viewer shared their identity first.
+ * matched back to its buyer — and a wallet to its owner — if the viewer shared
+ * their identity first. The id comes from the verified token and nowhere else.
+ *
+ * Twitch marks a logged-out viewer with an opaque id starting with `A`: there
+ * is no identity to share, so they are told to log in rather than to share.
  */
 export function requireLinkedViewer(identity: ExtIdentity): string {
   if (!identity.userId) {
+    if (identity.opaqueUserId.startsWith('A')) {
+      throw new AppError('needs_login', 'Войдите в Twitch, чтобы использовать GTA$', 403);
+    }
     throw new AppError(
       'needs_id_share',
       'Нужно поделиться Twitch-аккаунтом, чтобы засчитать оплату',

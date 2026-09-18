@@ -70,7 +70,8 @@ export async function resetDatabase(): Promise<void> {
       twitch_redemptions, waypoints, waypoint_quotes, twitch_reward_slots,
       eventsub_events, gps_samples, streamer_devices, oauth_states,
       broadcaster_oauth, channel_settings, channels,
-      ext_diag_events, ext_request_log
+      ext_diag_events, ext_request_log,
+      gta_wallet_transactions, gta_wallets, gta_exchange_rewards
     RESTART IDENTITY CASCADE`);
   await query('INSERT INTO channels (id) VALUES ($1) ON CONFLICT DO NOTHING', [TEST_CHANNEL]);
   await redis.flushdb();

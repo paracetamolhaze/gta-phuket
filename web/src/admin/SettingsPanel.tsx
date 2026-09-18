@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ApiClient } from '../shared/api';
 import { ApiFailure } from '../shared/api';
-import { formatDistance, formatPoints } from '../shared/format';
-import type { ChannelSettings, LngLat, PricingConfig, RestrictedZone } from '../shared/types';
+import { formatDistance, formatInteger, formatPoints } from '../shared/format';
+import type { ChannelSettings, LngLat, PaymentMode, PricingConfig, RestrictedZone } from '../shared/types';
 
 import type { ToastKind } from './App';
 
@@ -53,7 +53,8 @@ const GROUPS: FieldGroup[] = [
   {
     title: 'Цена',
     fields: [
-      { key: 'baseCost', label: 'База, баллы', min: 0, integer: true },
+      // The unit is added at render time: GTA$ or Channel Points, by payment mode.
+      { key: 'baseCost', label: 'База', min: 0, integer: true },
       { key: 'pointsPer100Meters', label: 'За 100 м', min: 0, integer: true },
       { key: 'minimumCost', label: 'Минимум', min: 1, integer: true },
       { key: 'maximumCost', label: 'Максимум', min: 1, integer: true },
@@ -205,6 +206,12 @@ interface SettingsPanelProps {
   api: ApiClient;
   /** Latest server copy seen by the poll/socket, used to refresh a clean form. */
   externalSettings: ChannelSettings | null;
+  /**
+   * What the pricing fields are denominated in (docs/GTA_DOLLAR_ECONOMY.md §1):
+   * the same numbers are GTA$ in `gta_dollar` mode and Channel Points in the
+   * legacy mode. Null until /api/admin/state has said; no unit is shown then.
+   */
+  paymentMode: PaymentMode | null;
   onToast: (kind: ToastKind, text: string) => void;
   onAuthError: (err: unknown) => boolean;
   onSaved: (settings: ChannelSettings) => void;
@@ -213,6 +220,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({
   api,
   externalSettings,
+  paymentMode,
   onToast,
   onAuthError,
   onSaved,
@@ -307,6 +315,15 @@ export function SettingsPanel({
     : null;
 
   const maxWalking = fieldStates.maxWalkingDistanceMeters.value ?? server?.maxWalkingDistanceMeters ?? null;
+
+  // At the default rate a GTA$ is a tenth of an ETH: a price typed while
+  // thinking in the wrong unit is off tenfold, so the unit is always named.
+  const priceUnit =
+    paymentMode === 'gta_dollar' ? 'GTA$' : paymentMode === 'channel_points_reward' ? 'баллы' : null;
+  const labelOf = (field: FieldSpec): string =>
+    field.key === 'baseCost' && priceUnit ? `${field.label}, ${priceUnit}` : field.label;
+  const formatPrice = (cost: number): string =>
+    paymentMode === 'gta_dollar' ? formatInteger(cost) : formatPoints(cost);
   const priceWarning =
     pricing && pricing.minimumCost > pricing.maximumCost
       ? 'Минимум больше максимума — сервер, скорее всего, это отклонит.'
@@ -413,7 +430,7 @@ export function SettingsPanel({
                 return (
                   <label className="ad-field" key={field.key}>
                     <span className="label">
-                      {field.label}
+                      {labelOf(field)}
                       {field.hint ? <span className="ad-sub"> · {field.hint}</span> : null}
                     </span>
                     <input
@@ -488,7 +505,9 @@ export function SettingsPanel({
           <thead>
             <tr>
               <th>Дистанция</th>
-              <th className="is-right">Баллов</th>
+              <th className="is-right">
+                {paymentMode === 'gta_dollar' ? 'GTA$' : paymentMode === 'channel_points_reward' ? 'Баллов' : 'Цена'}
+              </th>
               <th className="is-right">Сотен метров</th>
             </tr>
           </thead>
@@ -499,7 +518,7 @@ export function SettingsPanel({
                 <tr key={distance} className={overLimit ? 'is-dim' : ''}>
                   <td className="num">{formatDistance(distance)}</td>
                   <td className="is-right num">
-                    {pricing ? formatPoints(previewCost(distance, pricing)) : '—'}
+                    {pricing ? formatPrice(previewCost(distance, pricing)) : '—'}
                     {overLimit ? <span className="ad-sub"> · вне лимита</span> : null}
                   </td>
                   <td className="is-right num">{Math.ceil(distance / 100)}</td>

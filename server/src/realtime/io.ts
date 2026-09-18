@@ -9,17 +9,26 @@ import { getGpsState, getPublicGps, gpsInputSchema, ingestGps } from '../domain/
 import { getActiveWaypointView, refreshLiveNavigation } from '../domain/waypoints.js';
 import { sanitizeRouteGeometry } from '../domain/privacy.js';
 import { isObsToken, verifyAdminToken, verifyDeviceToken } from '../http/auth.js';
+import { verifyExtensionJwt } from '../twitch/extJwt.js';
 import type { RealtimeEventName, RealtimeEvents, SnapshotPayload } from '../domain/types.js';
 import { setRealtimeTransport, type Audience } from './bus.js';
 import { broadcastGps } from './gpsBroadcast.js';
 
 const VIEWERS = (channelId: string): string => `ch:${channelId}:viewers`;
 const TRUSTED = (channelId: string): string => `ch:${channelId}:trusted`;
+/** One linked viewer's own sockets, for wallet events nobody else may see. */
+export const WALLET_ROOM = (channelId: string, userId: string): string =>
+  `wallet:${channelId}:${userId}`;
 
-interface SocketData {
+export interface SocketData {
   role: 'viewer' | 'obs' | 'streamer' | 'admin';
   channelId: string;
   deviceId: string | null;
+  /**
+   * Numeric Twitch id proven by a verified extension JWT (identity shared).
+   * Null for anonymous, unlinked and non-extension sockets.
+   */
+  viewerUserId: string | null;
 }
 
 interface FanoutMessage {
@@ -27,10 +36,57 @@ interface FanoutMessage {
   event: string;
   payload: unknown;
   audience: Audience;
+  /** Set for emitToViewer: deliver to that viewer's wallet room only. */
+  userId?: string;
   origin: string;
 }
 
 const INSTANCE_ID = `${process.pid}-${Math.floor(Date.now() / 1000)}`;
+
+/**
+ * Decide who a socket is from its handshake `auth`. Throws only for a
+ * privileged role with a bad credential; a viewer is never refused.
+ */
+export function resolveSocketData(auth: Record<string, unknown>): SocketData {
+  const roleRaw = typeof auth.role === 'string' ? auth.role : 'viewer';
+  const token = typeof auth.token === 'string' ? auth.token : null;
+  const channelId =
+    (typeof auth.channelId === 'string' && auth.channelId) || env.TWITCH_CHANNEL_ID || 'dev';
+
+  const data: SocketData = { role: 'viewer', channelId, deviceId: null, viewerUserId: null };
+
+  if (roleRaw === 'streamer') {
+    if (!token) throw new Error('streamer socket needs a device token');
+    const claims = verifyDeviceToken(token);
+    data.role = 'streamer';
+    data.channelId = claims.channelId;
+    data.deviceId = claims.deviceId;
+  } else if (roleRaw === 'admin') {
+    if (!token) throw new Error('admin socket needs a token');
+    verifyAdminToken(token);
+    data.role = 'admin';
+  } else if (roleRaw === 'obs') {
+    // The OBS source draws the exact position into the outgoing video, so
+    // it is a privileged client and must present the OBS token. Without it
+    // the socket still connects, but joins the viewer room and therefore
+    // sees only the privacy-filtered feed.
+    data.role = isObsToken(token) ? 'obs' : 'viewer';
+  } else if (token) {
+    // An extension viewer may present its Twitch JWT. Verified and linked, it
+    // earns the viewer's own wallet room; anything else (expired, forged,
+    // another channel, anonymous) still connects as a plain viewer, because
+    // the public feed needs no identity and must not break on a stale token.
+    try {
+      const identity = verifyExtensionJwt(token);
+      data.channelId = identity.channelId;
+      data.viewerUserId = identity.userId;
+    } catch {
+      data.viewerUserId = null;
+    }
+  }
+
+  return data;
+}
 
 export function createRealtimeServer(httpServer: HttpServer): Server {
   const io = new Server(httpServer, {
@@ -45,33 +101,7 @@ export function createRealtimeServer(httpServer: HttpServer): Server {
 
   io.use((socket, next) => {
     try {
-      const auth = (socket.handshake.auth ?? {}) as Record<string, unknown>;
-      const roleRaw = typeof auth.role === 'string' ? auth.role : 'viewer';
-      const token = typeof auth.token === 'string' ? auth.token : null;
-      const channelId =
-        (typeof auth.channelId === 'string' && auth.channelId) || env.TWITCH_CHANNEL_ID || 'dev';
-
-      const data: SocketData = { role: 'viewer', channelId, deviceId: null };
-
-      if (roleRaw === 'streamer') {
-        if (!token) throw new Error('streamer socket needs a device token');
-        const claims = verifyDeviceToken(token);
-        data.role = 'streamer';
-        data.channelId = claims.channelId;
-        data.deviceId = claims.deviceId;
-      } else if (roleRaw === 'admin') {
-        if (!token) throw new Error('admin socket needs a token');
-        verifyAdminToken(token);
-        data.role = 'admin';
-      } else if (roleRaw === 'obs') {
-        // The OBS source draws the exact position into the outgoing video, so
-        // it is a privileged client and must present the OBS token. Without it
-        // the socket still connects, but joins the viewer room and therefore
-        // sees only the privacy-filtered feed.
-        data.role = isObsToken(token) ? 'obs' : 'viewer';
-      }
-
-      socket.data = data;
+      socket.data = resolveSocketData((socket.handshake.auth ?? {}) as Record<string, unknown>);
       next();
     } catch (err) {
       next(err instanceof Error ? err : new Error('socket auth failed'));
@@ -82,6 +112,7 @@ export function createRealtimeServer(httpServer: HttpServer): Server {
     const data = socket.data as SocketData;
     const trusted = data.role !== 'viewer';
     socket.join(trusted ? TRUSTED(data.channelId) : VIEWERS(data.channelId));
+    if (!trusted && data.viewerUserId) socket.join(WALLET_ROOM(data.channelId, data.viewerUserId));
 
     void sendSnapshot(socket).catch((err) =>
       logger.warn({ err }, 'could not send realtime snapshot'),
@@ -124,7 +155,11 @@ export function createRealtimeServer(httpServer: HttpServer): Server {
     try {
       const msg = JSON.parse(raw) as FanoutMessage;
       if (msg.origin === INSTANCE_ID) return;
-      deliver(io, msg.channelId, msg.event, msg.payload, msg.audience);
+      if (typeof msg.userId === 'string' && msg.userId) {
+        io.to(WALLET_ROOM(msg.channelId, msg.userId)).emit(msg.event, msg.payload);
+      } else {
+        deliver(io, msg.channelId, msg.event, msg.payload, msg.audience);
+      }
     } catch (err) {
       logger.debug({ err }, 'bad realtime fanout message');
     }
@@ -134,6 +169,10 @@ export function createRealtimeServer(httpServer: HttpServer): Server {
     emit(channelId, event, payload, audience) {
       deliver(io, channelId, event, payload, audience);
       publish(channelId, event, payload, audience);
+    },
+    emitToViewer(channelId, userId, event, payload) {
+      io.to(WALLET_ROOM(channelId, userId)).emit(event, payload);
+      publish(channelId, event, payload, 'viewers', userId);
     },
   });
 
@@ -155,8 +194,14 @@ function deliver(
   }
 }
 
-function publish(channelId: string, event: string, payload: unknown, audience: Audience): void {
-  const msg: FanoutMessage = { channelId, event, payload, audience, origin: INSTANCE_ID };
+function publish(
+  channelId: string,
+  event: string,
+  payload: unknown,
+  audience: Audience,
+  userId?: string,
+): void {
+  const msg: FanoutMessage = { channelId, event, payload, audience, userId, origin: INSTANCE_ID };
   void redisPub.publish(K.realtimeChannel, JSON.stringify(msg)).catch(() => undefined);
 }
 

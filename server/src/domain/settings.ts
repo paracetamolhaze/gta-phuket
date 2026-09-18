@@ -39,6 +39,10 @@ export const settingsPatchSchema = z
 
     quotesPerMinute: z.number().int().min(1).max(600),
     searchesPerMinute: z.number().int().min(1).max(600),
+
+    gtaDollarsPerChannelPoint: z.number().int().min(1).max(1000),
+    // Twitch's own limits for a Custom Reward cost.
+    exchangeRewardCost: z.number().int().min(1).max(1_000_000),
   })
   .partial()
   .strict();

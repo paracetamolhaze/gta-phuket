@@ -16,6 +16,7 @@ import {
   bearingToCardinal,
   formatDistance,
   formatDuration,
+  formatGta,
   formatPoints,
 } from '../shared/format';
 import type { ActiveWaypointView, GpsState } from '../shared/types';
@@ -42,6 +43,12 @@ const PUSH_MIN_INTERVAL_MS = 1500;
 const PUSH_TICK_MS = 400;
 
 const ARM_MS = 4000;
+
+/** The two ways out of a job that is not completed; order is the on-screen order. */
+const CANCEL_BUTTONS: ReadonlyArray<{ reason: CancelReason; label: string }> = [
+  { reason: 'cannot', label: 'НЕ МОГУ' },
+  { reason: 'unsafe', label: 'НЕБЕЗОПАСНО' },
+];
 const BANNER_MS = 15000;
 const FLASH_MS = 1400;
 
@@ -130,6 +137,28 @@ interface Auth {
   channelId: string;
 }
 
+/** Why the streamer gives up on a job: POST /api/streamer/waypoint/cancel. */
+type CancelReason = 'cannot' | 'unsafe';
+
+interface CancelResponse {
+  ok: boolean;
+  refunded?: boolean;
+  amount?: number | null;
+}
+
+/**
+ * The banner after НЕ МОГУ / НЕБЕЗОПАСНО. The amount is only ever what the
+ * server says it refunded. `wasGta` is the waypoint's currency captured before
+ * the call: a legacy points job has no GTA$ to talk about.
+ */
+function cancelNotice(reason: CancelReason, res: CancelResponse | undefined, wasGta: boolean): string {
+  const what = reason === 'unsafe' ? 'Точка отменена: небезопасно' : 'Точка отменена: не могу дойти';
+  const amount = typeof res?.amount === 'number' && Number.isFinite(res.amount) ? res.amount : null;
+  if (res?.refunded && amount != null && amount > 0) return `${what}. Зрителю возвращено ${formatGta(amount)}`;
+  if (res?.refunded) return `${what}. GTA$ возвращены зрителю`;
+  return wasGta ? `${what}. GTA$ не возвращались` : what;
+}
+
 type LinkState = 'connecting' | 'online' | 'reconnecting' | 'offline';
 
 // ---------------------------------------------------------------------------
@@ -178,8 +207,10 @@ export function App(): JSX.Element {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null);
 
   const [armComplete, setArmComplete] = useState(false);
+  const [armCancel, setArmCancel] = useState<CancelReason | null>(null);
   const [armUnpair, setArmUnpair] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [canceling, setCanceling] = useState<CancelReason | null>(null);
 
   const [pushedAt, setPushedAt] = useState<number | null>(null);
   const [wakeOn, setWakeOn] = useState(false);
@@ -382,6 +413,7 @@ export function App(): JSX.Element {
         setBanner(true);
         setFlashing(true);
         setArmComplete(false);
+        setArmCancel(null);
         buzz([120, 60, 120]);
       }),
       bind(socket, 'route:update', (payload) => {
@@ -400,11 +432,13 @@ export function App(): JSX.Element {
         setWaypoint(null);
         setBanner(false);
         setArmComplete(false);
+        setArmCancel(null);
       }),
       bind(socket, 'waypoint:canceled', () => {
         setWaypoint(null);
         setBanner(false);
         setArmComplete(false);
+        setArmCancel(null);
       }),
       bind(socket, 'settings:update', (settings) => {
         setWaypointsOpen(settings.waypointsOpen);
@@ -440,6 +474,13 @@ export function App(): JSX.Element {
     const id = window.setTimeout(() => setArmComplete(false), ARM_MS);
     return () => window.clearTimeout(id);
   }, [armComplete]);
+
+  // Re-arming the other cancel button restarts the window: the dep changes.
+  useEffect(() => {
+    if (!armCancel) return;
+    const id = window.setTimeout(() => setArmCancel(null), ARM_MS);
+    return () => window.clearTimeout(id);
+  }, [armCancel]);
 
   useEffect(() => {
     if (!armUnpair) return;
@@ -503,6 +544,8 @@ export function App(): JSX.Element {
   const onComplete = useCallback(() => {
     gestureRef.current = true;
     if (!armComplete) {
+      // One armed button at a time, so a second tap can only confirm what it armed.
+      setArmCancel(null);
       setArmComplete(true);
       buzz([20]);
       return;
@@ -519,6 +562,37 @@ export function App(): JSX.Element {
       .catch((err: unknown) => say('bad', viewerMessage(err)))
       .finally(() => setCompleting(false));
   }, [api, armComplete, say]);
+
+  /**
+   * НЕ МОГУ / НЕБЕЗОПАСНО: same arm-then-confirm as the complete button. The
+   * server cancels the job and returns a GTA$ waypoint's cost to the viewer;
+   * the phone only reports the amount the server says it refunded.
+   */
+  const onCancel = useCallback(
+    (reason: CancelReason) => {
+      gestureRef.current = true;
+      if (armCancel !== reason) {
+        setArmComplete(false);
+        setArmCancel(reason);
+        buzz([20]);
+        return;
+      }
+      setArmCancel(null);
+      setCanceling(reason);
+      // Captured before the call: the canceled event may clear the waypoint first.
+      const wasGta = waypoint?.currency === 'GTA_DOLLAR';
+      api
+        .post<CancelResponse>('/waypoint/cancel', { reason })
+        .then((res) => {
+          setWaypoint(null);
+          setBanner(false);
+          say('ok', cancelNotice(reason, res, wasGta));
+        })
+        .catch((err: unknown) => say('bad', viewerMessage(err)))
+        .finally(() => setCanceling(null));
+    },
+    [api, armCancel, say, waypoint],
+  );
 
   const onUnpair = useCallback(() => {
     if (!armUnpair) {
@@ -587,6 +661,10 @@ export function App(): JSX.Element {
 
   // Remounting the beat restarts its CSS pulse — one blink per uploaded fix.
   const beatKey = pushedAt ?? 0;
+
+  const isGta = waypoint?.currency === 'GTA_DOLLAR';
+  // One request at a time across ЗАВЕРШИТЬ / НЕ МОГУ / НЕБЕЗОПАСНО.
+  const busy = completing || canceling !== null;
 
   // -- pairing screen ------------------------------------------------------
 
@@ -771,7 +849,13 @@ export function App(): JSX.Element {
 
             <div className="sc-paid">
               {waypoint.paidBy ? `${waypoint.paidBy} · ` : ''}
-              <span className="num">{formatPoints(waypoint.channelPointsPaid)}</span> очков
+              {isGta ? (
+                <span className="num">{formatGta(waypoint.channelPointsPaid)}</span>
+              ) : (
+                <>
+                  <span className="num">{formatPoints(waypoint.channelPointsPaid)}</span> очков
+                </>
+              )}
             </div>
 
             <div className="sc-actions">
@@ -790,10 +874,28 @@ export function App(): JSX.Element {
                 type="button"
                 className={`btn sc-xl sc-finish${armComplete ? ' is-armed' : ''}`}
                 onClick={onComplete}
-                disabled={completing}
+                disabled={busy}
               >
                 {completing ? 'ОТПРАВЛЯЕМ…' : armComplete ? 'НАЖМИ ЕЩЁ РАЗ' : 'ЗАВЕРШИТЬ'}
               </button>
+              <div className="sc-abort">
+                {CANCEL_BUTTONS.map(({ reason, label }) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    className={`btn sc-xl sc-finish sc-abort-btn${armCancel === reason ? ' is-armed' : ''}`}
+                    onClick={() => onCancel(reason)}
+                    disabled={busy}
+                  >
+                    {canceling === reason ? 'ОТПРАВЛЯЕМ…' : armCancel === reason ? 'НАЖМИ ЕЩЁ РАЗ' : label}
+                  </button>
+                ))}
+              </div>
+              {isGta && waypoint.channelPointsPaid > 0 ? (
+                <div className="sc-abort-note">
+                  Отмена вернёт зрителю <span className="num">{formatGta(waypoint.channelPointsPaid)}</span>
+                </div>
+              ) : null}
             </div>
           </section>
         ) : (

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   JUNGCEYLON,
   PATONG,
@@ -9,6 +9,7 @@ import {
   seedRewardPool,
   servicesAvailable,
 } from './helpers/services.js';
+import { setPaymentModeOverride } from '../src/domain/paymentMode.js';
 import { sanitizeRouteGeometry } from '../src/domain/privacy.js';
 import { decodePolyline6, encodePolyline6, haversineMeters, pathLengthMeters } from '../src/domain/geo.js';
 import { isObsToken, obsToken } from '../src/http/auth.js';
@@ -30,6 +31,13 @@ vi.mock('../src/maps/mapbox.js', async (importOriginal) => {
 
 const online = await servicesAvailable();
 const d = online ? describe : describe.skip;
+
+// These suites exercise the legacy per-quote slot rewards, which only exist in
+// channel_points_reward mode. The mode is pinned here rather than assumed, so a
+// change of default cannot quietly turn them into tests of something else; the
+// GTA$ flow has its own suite (gta-dollar.test.ts).
+beforeAll(() => setPaymentModeOverride('channel_points_reward'));
+afterAll(() => setPaymentModeOverride(null));
 
 // A ~700 m line heading south-east out of Patong.
 function sampleRoute(): string {
@@ -261,6 +269,9 @@ d('realtime event separation', () => {
     const events: { event: string; payload: unknown }[] = [];
     setRealtimeTransport({
       emit(_channelId, event, payload) {
+        events.push({ event, payload });
+      },
+      emitToViewer(_channelId, _userId, event, payload) {
         events.push({ event, payload });
       },
     });

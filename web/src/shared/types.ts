@@ -154,6 +154,12 @@ export interface ChannelSettings {
   // rate limits (per viewer)
   quotesPerMinute: number;
   searchesPerMinute: number;
+
+  // GTA DOLLAR economy
+  /** GTA$ credited per ETH (Channel Point) spent on the exchange reward. */
+  gtaDollarsPerChannelPoint: number;
+  /** ETH cost of the «Обмен ETH на GTA DOLLAR» reward on Twitch. */
+  exchangeRewardCost: number;
 }
 
 export const DEFAULT_SETTINGS: ChannelSettings = {
@@ -178,7 +184,76 @@ export const DEFAULT_SETTINGS: ChannelSettings = {
 
   quotesPerMinute: 10,
   searchesPerMinute: 30,
+
+  gtaDollarsPerChannelPoint: 10,
+  exchangeRewardCost: 500,
 };
+
+// ---------------------------------------------------------------------------
+// Payment
+// ---------------------------------------------------------------------------
+
+/**
+ * `gta_dollar`: waypoints are bought inside the map with the internal
+ * currency. `channel_points_reward`: the legacy per-quote slot rewards, kept
+ * for rollback.
+ */
+export type PaymentMode = 'gta_dollar' | 'channel_points_reward';
+
+/** What a quote or a waypoint was (or will be) paid with. */
+export type WaypointCurrency = 'GTA_DOLLAR' | 'CHANNEL_POINTS';
+
+export type WalletTransactionType =
+  | 'EXCHANGE_CREDIT'
+  | 'WAYPOINT_DEBIT'
+  | 'MISSION_REFUND'
+  | 'ADMIN_ADJUSTMENT';
+
+export type FulfillmentStatus = 'PENDING' | 'FULFILLED' | 'FAILED' | 'CANCELED_EXTERNALLY';
+
+export interface WalletTransaction {
+  id: string;
+  channelId: string;
+  twitchUserId: string;
+  type: WalletTransactionType;
+  /** Signed: credits are positive, debits negative. */
+  amount: number;
+  balanceAfter: number;
+  twitchRedemptionId: string | null;
+  twitchRewardId: string | null;
+  channelPointsCost: number | null;
+  quoteId: string | null;
+  waypointId: string | null;
+  fulfillmentStatus: FulfillmentStatus | null;
+  fulfillmentAttempts: number;
+  createdAt: number;
+}
+
+/** Exchange terms as the viewer sees them. Never hardcoded on the client. */
+export interface EconomyInfo {
+  symbol: 'GTA$';
+  exchangeRate: number;
+  rewardTitle: string;
+  rewardCost: number;
+  gtaPerRedemption: number;
+  /** False while no exchange reward exists on Twitch. */
+  available: boolean;
+}
+
+export interface WalletView {
+  currency: 'GTA_DOLLAR';
+  symbol: 'GTA$';
+  balance: number;
+  exchangeRate: number;
+  exchange: Omit<EconomyInfo, 'symbol' | 'exchangeRate'>;
+  recent: {
+    id: string;
+    type: WalletTransactionType;
+    amount: number;
+    balanceAfter: number;
+    createdAt: string;
+  }[];
+}
 
 // ---------------------------------------------------------------------------
 // Quotes
@@ -205,7 +280,9 @@ export interface Quote {
   routeDistanceMeters: number;
   routeDurationSeconds: number;
   routeGeometry: string;
+  /** The frozen price, in the quote's `currency` (the column predates GTA$). */
   channelPointsCost: number;
+  currency: WaypointCurrency;
   status: QuoteStatus;
   /** Reward slot reserved at confirm time; null while status is QUOTED. */
   slotId: string | null;
@@ -228,6 +305,7 @@ export interface QuoteView {
   routeGeometry: string;
   /** Reward title the viewer must look for in the Channel Points menu. */
   rewardTitle: string | null;
+  currency: WaypointCurrency;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +332,9 @@ export interface Waypoint {
   routeDistanceMeters: number;
   routeDurationSeconds: number;
   routeGeometry: string;
+  /** What was paid, in `currency`. */
   channelPointsPaid: number;
+  currency: WaypointCurrency;
   status: WaypointStatus;
   activatedAt: number;
   completedAt: number | null;
@@ -279,6 +359,7 @@ export interface ActiveWaypointView {
   remainingDurationSeconds: number | null;
   paidBy: string | null;
   channelPointsPaid: number;
+  currency: WaypointCurrency;
   activatedAt: number;
 }
 
@@ -355,7 +436,8 @@ export interface RealtimeEvents {
   'waypoint:quoted': { quoteId: string; code: string; destinationName: string; cost: number };
   'waypoint:awaiting_payment': { quoteId: string; code: string; rewardTitle: string; cost: number };
   'waypoint:activated': ActiveWaypointView;
-  'waypoint:completed': { id: string; destinationName: string };
+  /** `quoteId` lets a viewer whose purchase went unanswered recognise its own job. */
+  'waypoint:completed': { id: string; quoteId: string; destinationName: string };
   /** The ACTIVE job was cancelled. Clients clear their waypoint on this one. */
   'waypoint:canceled': { id: string; quoteId: string | null; reason: string };
   /**
@@ -373,6 +455,23 @@ export interface RealtimeEvents {
   'reward:redeemed': { quoteId: string; userId: string; cost: number };
   'reward:refunded': { quoteId: string | null; userId: string; reason: string };
   'slots:update': { free: number; total: number };
+  /**
+   * Only ever sent to the one viewer whose wallet changed (emitToViewer). A
+   * signal, not a source of truth: the client re-reads GET /api/ext/wallet.
+   */
+  'wallet:updated': {
+    type: WalletTransactionType;
+    amount: number;
+    balance: number;
+    transactionId: string;
+  };
+  'waypoint:purchased': {
+    waypointId: string;
+    quoteId: string;
+    userId: string;
+    cost: number;
+    currency: 'GTA_DOLLAR';
+  };
 }
 
 export type RealtimeEventName = keyof RealtimeEvents;
@@ -393,6 +492,8 @@ export interface ViewerStatePayload {
     quoteTtlSeconds: number;
   };
   slots: { free: number; total: number };
+  paymentMode: PaymentMode;
+  economy: EconomyInfo;
 }
 
 export interface SearchResult {
@@ -410,6 +511,10 @@ export type ApiErrorCode =
   | 'unauthorized'
   | 'forbidden'
   | 'needs_id_share'
+  | 'needs_login'
+  | 'insufficient_funds'
+  | 'price_changed'
+  | 'payment_mode'
   | 'rate_limited'
   | 'gps_unavailable'
   | 'waypoints_closed'

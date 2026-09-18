@@ -12,18 +12,24 @@ import { bind, connectSocket } from '../shared/socket';
 import { formatDistance } from '../shared/format';
 import type {
   ActiveWaypointView,
+  EconomyInfo,
   GpsState,
   LatLng,
+  PaymentMode,
   PublicGps,
   QuoteView,
   SearchResult,
   ViewerStatePayload,
+  WalletView,
 } from '../shared/types';
 import MapView, { parseExtConfig } from './MapView';
 import type { ExtConfig, MapFocus, MapPick } from './MapView';
-import DestinationCard from './DestinationCard';
+import DestinationCard, { isGtaQuote } from './DestinationCard';
 import type { CardState } from './DestinationCard';
 import SearchBox from './SearchBox';
+import { TopUpDialog, WalletChip, WalletToast } from './Wallet';
+import type { WalletCredit, WalletLoad } from './Wallet';
+import { walletIdentity } from './identity';
 import type { ExtAuth } from './twitch';
 import {
   currentToken,
@@ -70,7 +76,14 @@ function toPublicGps(payload: PublicGps | GpsState): PublicGps {
 }
 
 function quoteOf(state: CardState): QuoteView | null {
-  if (state.kind === 'quoted' || state.kind === 'confirming' || state.kind === 'awaiting') return state.quote;
+  if (
+    state.kind === 'quoted' ||
+    state.kind === 'confirming' ||
+    state.kind === 'awaiting' ||
+    state.kind === 'purchasing'
+  ) {
+    return state.quote;
+  }
   return null;
 }
 
@@ -110,6 +123,27 @@ function useNow(active: boolean): number {
 interface Banner {
   text: string;
   tone: 'warn' | 'bad';
+}
+
+/** How long a credit or refund toast stays up. */
+const WALLET_TOAST_MS = 5000;
+
+/** The top-up dialog: closed, open, or open and showing a credit that just landed. */
+type TopUpState = { credit: WalletCredit | null } | null;
+
+/** `POST /api/ext/waypoints/purchase` → 200. */
+interface PurchaseResponse {
+  ok: true;
+  /** False on an idempotent repeat: the same waypoint, no second charge. */
+  charged: boolean;
+  waypoint: ActiveWaypointView;
+  /**
+   * Where that waypoint stands now. A repeat can arrive after the job has
+   * already ended; absent from an older server, which means ACTIVE.
+   */
+  waypointStatus?: 'ACTIVE' | 'COMPLETED' | 'CANCELED';
+  balance: number;
+  cost: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +200,15 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [narrow, setNarrow] = useState(() => isNarrowViewport());
 
+  // GTA$ economy. The balance lives in memory only, never in localStorage, and
+  // is always whatever GET /api/ext/wallet answered last.
+  const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
+  const [economy, setEconomy] = useState<EconomyInfo | null>(null);
+  const [wallet, setWallet] = useState<WalletView | null>(null);
+  const [walletLoad, setWalletLoad] = useState<WalletLoad>('idle');
+  const [topUp, setTopUp] = useState<TopUpState>(null);
+  const [toast, setToast] = useState<WalletCredit | null>(null);
+
   const mobile = forceMobile || extParams.platform === 'mobile' || narrow;
 
   // Twitch highlights the extension while the viewer hovers its icon. The
@@ -192,6 +235,19 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   cardRef.current = card;
   const paidQuoteRef = useRef<string | null>(null);
   const pickSeqRef = useRef(0);
+  const lastPickRef = useRef<MapPick | null>(null);
+  const purchasingRef = useRef(false);
+
+  // Twitch rotates the token for the same viewer every so often; the identity
+  // key only changes when the viewer does — typically right after
+  // requestIdShare — and that is what the wallet and the socket follow.
+  const identity = useMemo(() => walletIdentity(auth), [auth]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const paymentModeRef = useRef(paymentMode);
+  paymentModeRef.current = paymentMode;
+  const topUpOpenRef = useRef(false);
+  topUpOpenRef.current = topUp !== null;
 
   // --- Twitch authorization -------------------------------------------------
   useEffect(() => {
@@ -242,6 +298,8 @@ export default function App({ forceMobile = false }: AppProps = {}) {
         setActive(next.activeWaypoint);
         setWaypointsOpen(next.waypointsOpen);
         setSlots(next.slots);
+        setPaymentMode(next.paymentMode ?? null);
+        setEconomy(next.economy ?? null);
         setAuthError(null);
       })
       .catch((err: unknown) => {
@@ -257,9 +315,103 @@ export default function App({ forceMobile = false }: AppProps = {}) {
     refresh();
   }, [auth, refresh]);
 
+  // --- GTA$ wallet ----------------------------------------------------------
+  const walletSeqRef = useRef(0);
+  const announcedRef = useRef<Set<string>>(new Set());
+
+  /**
+   * The only way a balance reaches the screen. Realtime events, a purchase, a
+   * reconnect and an identity change all end up here; none of them sets a
+   * balance on its own. Resolves with what the server said (null on failure)
+   * even when a newer read has since overtaken it.
+   */
+  const loadWallet = useCallback((): Promise<WalletView | null> => {
+    const seq = walletSeqRef.current + 1;
+    walletSeqRef.current = seq;
+    if (identityRef.current.kind !== 'linked' || !currentToken()) return Promise.resolve(null);
+    setWalletLoad((prev) => (prev === 'ready' ? prev : 'loading'));
+    return api.get<WalletView>('/api/ext/wallet').then(
+      (next) => {
+        if (walletSeqRef.current === seq) {
+          setWallet(next);
+          setWalletLoad('ready');
+        }
+        return next;
+      },
+      (err: unknown) => {
+        if (walletSeqRef.current === seq) {
+          const code = err instanceof ApiFailure ? err.code : null;
+          if (code === 'needs_id_share' || code === 'needs_login') {
+            // The server read the token differently than we did. It wins.
+            setWallet(null);
+            setWalletLoad(code);
+          } else {
+            // A blip: keep showing the last balance the server confirmed.
+            setWalletLoad((prev) => (prev === 'ready' ? prev : 'error'));
+          }
+        }
+        return null;
+      },
+    );
+  }, [api]);
+
+  const loadWalletRef = useRef(loadWallet);
+  loadWalletRef.current = loadWallet;
+
+  // On mount and whenever the viewer behind the token changes: forget
+  // everything that belonged to the previous one before reading again, so one
+  // viewer's balance can never be shown to another.
+  useEffect(() => {
+    walletSeqRef.current += 1;
+    setWallet(null);
+    setToast(null);
+    setTopUp((prev) => (prev ? { credit: null } : prev));
+    if (identity.kind === 'linked') {
+      setWalletLoad('loading');
+      void loadWalletRef.current();
+      // The share prompt was answered; the card that asked for it is done.
+      setCard((prev) =>
+        prev.kind === 'error' && (prev.code === 'needs_id_share' || prev.code === 'needs_login')
+          ? { kind: 'idle' }
+          : prev,
+      );
+    } else if (identity.kind === 'anonymous') {
+      setWalletLoad('needs_login');
+    } else if (identity.kind === 'unlinked') {
+      setWalletLoad('needs_id_share');
+    } else {
+      setWalletLoad('idle');
+    }
+  }, [identity.key, identity.kind]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), WALLET_TOAST_MS);
+    return () => window.clearTimeout(id);
+  }, [toast]);
+
+  /**
+   * An exchange credit lands in the open top-up dialog, which is where the
+   * viewer is waiting for it; anything else, or a credit with the dialog
+   * closed, becomes a short toast.
+   */
+  const announceCredit = useCallback((credit: WalletCredit) => {
+    // One notice per ledger row, however many times the signal arrives.
+    if (announcedRef.current.has(credit.transactionId)) return;
+    announcedRef.current.add(credit.transactionId);
+    if (paymentModeRef.current !== 'gta_dollar') return;
+    if (credit.type === 'EXCHANGE_CREDIT' && topUpOpenRef.current && expandedRef.current) {
+      setTopUp({ credit });
+      return;
+    }
+    setToast(credit);
+  }, []);
+
   // Opening the overlay is a good moment to re-sync (the tab may have slept).
   useEffect(() => {
-    if (expanded) refreshRef.current();
+    if (!expanded) return;
+    refreshRef.current();
+    void loadWalletRef.current();
   }, [expanded]);
 
   // --- realtime -------------------------------------------------------------
@@ -267,11 +419,18 @@ export default function App({ forceMobile = false }: AppProps = {}) {
 
   useEffect(() => {
     if (!channelId) return;
-    const socket = connectSocket({ role: 'viewer', channelId });
+    // The token is read on every (re)connect, so a rotated JWT is what the
+    // server sees. A different viewer reconnects outright (identity.key in the
+    // deps), because the server only puts a verified, linked viewer into their
+    // wallet room at handshake time.
+    const socket = connectSocket({ role: 'viewer', channelId, token: () => currentToken() });
 
     const resolveMine = (waypoint: ActiveWaypointView): boolean => {
       const mine = quoteOf(cardRef.current);
       if (!mine) return false;
+      // A GTA$ quote only becomes a waypoint through our own purchase request,
+      // and its response says so. A waypoint at the same spot is someone else's.
+      if (isGtaQuote(mine, paymentModeRef.current)) return false;
       return paidQuoteRef.current === mine.quoteId || sameSpot(waypoint.destination, mine.destination);
     };
 
@@ -313,9 +472,13 @@ export default function App({ forceMobile = false }: AppProps = {}) {
       }),
       bind(socket, 'waypoint:activated', (waypoint) => {
         setActive(waypoint);
-        if (resolveMine(waypoint)) {
+        const current = cardRef.current;
+        if (current.kind === 'purchasing' || (current.kind === 'quoted' && current.unsure)) {
+          // Ours or somebody else's: only the purchase endpoint knows — its
+          // response is on its way, or one more press of the button asks it.
+        } else if (resolveMine(waypoint)) {
           paidQuoteRef.current = null;
-          setCard({ kind: 'active', name: waypoint.destinationName });
+          setCard({ kind: 'active', name: waypoint.destinationName, waypointId: waypoint.id });
         } else if (quoteOf(cardRef.current)) {
           setCard({ kind: 'error', message: 'Сейчас выполняется задание…', code: 'waypoint_active' });
         }
@@ -323,36 +486,74 @@ export default function App({ forceMobile = false }: AppProps = {}) {
       }),
       bind(socket, 'waypoint:completed', (payload) => {
         setActive(null);
-        if (cardRef.current.kind === 'active') setCard({ kind: 'completed', name: payload.destinationName });
+        const current = cardRef.current;
+        const mine = quoteOf(current);
+        // Also a quote whose purchase went unanswered: it was ours after all,
+        // and it is over, so there is nothing left to press again for.
+        if (current.kind === 'active' || (mine && mine.quoteId === payload.quoteId)) {
+          setCard({ kind: 'completed', name: payload.destinationName });
+        }
         refreshRef.current();
       }),
       bind(socket, 'waypoint:canceled', (payload) => {
         setActive(null);
-        const mine = quoteOf(cardRef.current);
+        const current = cardRef.current;
+        const mine = quoteOf(current);
         if (mine && payload.quoteId === mine.quoteId) {
           setCard({ kind: 'error', message: 'Точка отменена', code: null });
+        } else if (current.kind === 'active' && current.waypointId === payload.id) {
+          // A GTA$ refund, if there is one, arrives as its own wallet:updated.
+          setCard({ kind: 'error', message: 'Задание отменено', code: null });
         }
         refreshRef.current();
       }),
       // A quote dying is not a waypoint dying: only clear our own card, and
       // never touch the running job.
       bind(socket, 'quote:canceled', (payload) => {
-        const mine = quoteOf(cardRef.current);
+        const current = cardRef.current;
+        const mine = quoteOf(current);
         if (!mine || mine.quoteId !== payload.quoteId) return;
+        // Mid-purchase, the purchase response says exactly what happened.
+        if (current.kind === 'purchasing') return;
+        const lostRace = payload.reason === 'another viewer paid first';
         setCard({
           kind: 'error',
-          message:
-            payload.reason === 'another viewer paid first'
-              ? 'Кто-то оплатил раньше. Баллы возвращены'
-              : 'Расчёт больше не действителен. Выбери точку заново',
+          message: lostRace
+            ? isGtaQuote(mine, paymentModeRef.current)
+              ? 'Кто-то оплатил раньше. GTA$ не списаны'
+              : 'Кто-то оплатил раньше. Баллы возвращены'
+            : 'Расчёт больше не действителен. Выбери точку заново',
           code: null,
         });
         refreshRef.current();
       }),
       bind(socket, 'slots:update', (payload) => setSlots(payload)),
+      // A signal, not a value: re-read the wallet and announce what the
+      // server says now.
+      bind(socket, 'wallet:updated', (payload) => {
+        const key = identityRef.current.key;
+        void loadWalletRef.current().then((fresh) => {
+          if (identityRef.current.key !== key) return;
+          if (payload.type !== 'EXCHANGE_CREDIT' && payload.type !== 'MISSION_REFUND') return;
+          const row = fresh?.recent.find((tx) => tx.id === payload.transactionId);
+          announceCredit({
+            transactionId: payload.transactionId,
+            type: payload.type,
+            amount: row?.amount ?? payload.amount,
+            balance: fresh?.balance ?? payload.balance,
+          });
+        });
+      }),
     ];
 
-    const onConnect = (): void => refreshRef.current();
+    // A reconnect may have missed a wallet:updated; the first connect follows
+    // a wallet read that the identity effect has already started.
+    let connectedBefore = false;
+    const onConnect = (): void => {
+      refreshRef.current();
+      if (connectedBefore) void loadWalletRef.current();
+      connectedBefore = true;
+    };
     socket.on('connect', onConnect);
 
     return () => {
@@ -360,7 +561,7 @@ export default function App({ forceMobile = false }: AppProps = {}) {
       socket.off('connect', onConnect);
       socket.disconnect();
     };
-  }, [channelId]);
+  }, [channelId, identity.key, announceCredit]);
 
   // --- derived --------------------------------------------------------------
   const gpsDown = gps !== null && gps.status !== 'ok';
@@ -381,8 +582,10 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   const destination: LatLng | null = active ? active.destination : quote?.destination ?? null;
 
   const countdownRunning =
-    card.kind === 'quoted' || card.kind === 'confirming' || card.kind === 'awaiting';
+    card.kind === 'quoted' || card.kind === 'confirming' || card.kind === 'awaiting' || card.kind === 'purchasing';
   const now = useNow(countdownRunning);
+
+  const gtaMode = paymentMode === 'gta_dollar';
 
   // --- actions --------------------------------------------------------------
   const openMapVia = useCallback((via: 'react' | 'raw') => {
@@ -393,7 +596,13 @@ export default function App({ forceMobile = false }: AppProps = {}) {
 
   const openMap = useCallback(() => openMapVia('react'), [openMapVia]);
 
-  const closeMap = useCallback(() => setExpanded(false), []);
+  const closeMap = useCallback(() => {
+    setExpanded(false);
+    setTopUp(null);
+  }, []);
+
+  const openTopUp = useCallback(() => setTopUp({ credit: null }), []);
+  const closeTopUp = useCallback(() => setTopUp(null), []);
 
   // --- trigger diagnostics --------------------------------------------------
   // Nobody can look at a viewer's player, so the app measures the button this
@@ -488,7 +697,10 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   useEffect(() => {
     if (!expanded) return;
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setExpanded(false);
+      if (event.key !== 'Escape') return;
+      // The top-up dialog is the innermost layer, so it goes first.
+      if (topUpOpenRef.current) setTopUp(null);
+      else setExpanded(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -502,14 +714,20 @@ export default function App({ forceMobile = false }: AppProps = {}) {
         return;
       }
       if (!isLinked()) {
-        const failure = new ApiFailure('needs_id_share', 'identity not shared', 403);
-        setCard({ kind: 'error', message: viewerMessage(failure), code: 'needs_id_share' });
+        // Sharing an identity is something an anonymous viewer cannot do yet.
+        const code =
+          identityRef.current.kind === 'anonymous' && paymentModeRef.current === 'gta_dollar'
+            ? 'needs_login'
+            : 'needs_id_share';
+        const failure = new ApiFailure(code, 'identity not shared', 403);
+        setCard({ kind: 'error', message: viewerMessage(failure), code });
         return;
       }
 
       const seq = pickSeqRef.current + 1;
       pickSeqRef.current = seq;
       paidQuoteRef.current = null;
+      lastPickRef.current = pick;
       setCard({ kind: 'loading', name: pick.name });
 
       api
@@ -559,6 +777,93 @@ export default function App({ forceMobile = false }: AppProps = {}) {
       );
   }, [api]);
 
+  /**
+   * One click, one request. The button is disabled for as long as it is in
+   * flight (and the ref catches a double click before React re-renders); the
+   * server is idempotent per quote anyway, which is what makes "press it
+   * again" a safe answer when the response never arrives.
+   */
+  const handlePurchase = useCallback(() => {
+    const pending = quoteOf(cardRef.current);
+    if (!pending || purchasingRef.current) return;
+    const wasUnsure = cardRef.current.kind === 'quoted' && cardRef.current.unsure === true;
+    purchasingRef.current = true;
+    setCard({ kind: 'purchasing', quote: pending });
+
+    const stillMine = (): boolean => {
+      const current = cardRef.current;
+      return current.kind === 'purchasing' && current.quote.quoteId === pending.quoteId;
+    };
+
+    api
+      .post<PurchaseResponse>('/api/ext/waypoints/purchase', { quoteId: pending.quoteId })
+      .then((result) => {
+        // A press after an unanswered one can come back once the job it
+        // bought is already over: say how it ended, never show it as running.
+        // Nothing new happened, so a card the viewer has moved on from stays.
+        if (result.waypointStatus === 'COMPLETED' || result.waypointStatus === 'CANCELED') {
+          if (!stillMine()) return;
+          setCard(
+            result.waypointStatus === 'COMPLETED'
+              ? { kind: 'completed', name: result.waypoint.destinationName }
+              : { kind: 'error', message: 'Задание отменено', code: null },
+          );
+          return;
+        }
+        // Bought is bought, even if the viewer has closed the card meanwhile.
+        setActive(result.waypoint);
+        setCard({
+          kind: 'active',
+          name: result.waypoint.destinationName,
+          waypointId: result.waypoint.id,
+          paid: result.cost,
+        });
+      })
+      .catch((err: unknown) => {
+        if (!stillMine()) return;
+        if (!(err instanceof ApiFailure) || err.status >= 500) {
+          // No verdict: it may or may not have gone through. Same quote again
+          // is safe — the server charges one quote once, and answers a repeat
+          // of a purchase that did go through with that same waypoint.
+          setCard({
+            kind: 'quoted',
+            quote: pending,
+            notice: 'Нет ответа от сервера. Нажмите ещё раз — GTA$ спишутся только один раз',
+            unsure: true,
+          });
+          return;
+        }
+        if (err.code === 'insufficient_funds') {
+          // A verdict: nothing was charged for this quote (a repeat of one that
+          // was would have been answered with its waypoint). Back to the quote,
+          // which with the re-read balance shows the shortfall and the top-up.
+          setCard({ kind: 'quoted', quote: pending, notice: viewerMessage(err) });
+          return;
+        }
+        if (err.code === 'rate_limited') {
+          // Not even looked at: the quote stands exactly as it did before.
+          setCard({ kind: 'quoted', quote: pending, notice: viewerMessage(err), unsure: wasUnsure });
+          return;
+        }
+        setCard({ kind: 'error', message: viewerMessage(err), code: err.code });
+      })
+      .finally(() => {
+        purchasingRef.current = false;
+        void loadWalletRef.current();
+        refreshRef.current();
+      });
+  }, [api]);
+
+  /**
+   * After `price_changed`, `payment_mode` or `quote_expired`: the same place,
+   * a fresh quote at today's price and in today's currency.
+   */
+  const handleRequote = useCallback(() => {
+    const pick = lastPickRef.current;
+    if (pick) handlePick(pick);
+    else setCard({ kind: 'idle' });
+  }, [handlePick]);
+
   const handleCancel = useCallback(() => {
     const pending = quoteOf(cardRef.current);
     setCard({ kind: 'idle' });
@@ -585,7 +890,8 @@ export default function App({ forceMobile = false }: AppProps = {}) {
   // The map still opens and still shows Phuket without a GPS fix; only buying
   // is blocked, so this says what is missing rather than hiding the map.
   else if (gpsDown) banners.push({ text: 'GPS стримера временно недоступен', tone: 'warn' });
-  if (slots && slots.total > 0 && slots.free === 0)
+  // Slots are the legacy Channel Points mechanism; GTA$ purchases never use one.
+  if (!gtaMode && slots && slots.total > 0 && slots.free === 0)
     banners.push({ text: 'Все слоты наград заняты, подожди немного', tone: 'warn' });
 
   const remaining = active ? formatDistance(active.remainingDistanceMeters) : null;
@@ -660,6 +966,9 @@ export default function App({ forceMobile = false }: AppProps = {}) {
         </div>
       )}
 
+      {/* A credit that lands while the map is shut. Click-through, and clear of the trigger. */}
+      {!expanded && gtaMode && toast && <WalletToast credit={toast} placement="collapsed" />}
+
       {mounted && (
         <div className={expanded ? 'overlay is-open' : 'overlay'} aria-hidden={!expanded}>
           <div className="topBar">
@@ -699,6 +1008,21 @@ export default function App({ forceMobile = false }: AppProps = {}) {
               onPick={handlePick}
             />
 
+            {gtaMode && (
+              <div className="walletDock">
+                <WalletChip
+                  load={walletLoad}
+                  balance={wallet?.balance ?? null}
+                  onTopUp={openTopUp}
+                  onIdShare={requestIdShare}
+                />
+                {topUp && (
+                  <TopUpDialog offer={economy ?? wallet?.exchange ?? null} credit={topUp.credit} onClose={closeTopUp} />
+                )}
+                {toast && <WalletToast credit={toast} placement="map" />}
+              </div>
+            )}
+
             {card.kind === 'idle' && (
               <div className="hintPill">
                 {active ? `Идёт задание: ${active.destinationName}` : 'Нажми на место на карте или найди его поиском'}
@@ -710,7 +1034,12 @@ export default function App({ forceMobile = false }: AppProps = {}) {
                 state={card}
                 now={now}
                 blockedMessage={blockedMessage}
+                paymentMode={paymentMode}
+                wallet={{ load: walletLoad, balance: wallet?.balance ?? null }}
                 onConfirm={handleConfirm}
+                onPurchase={handlePurchase}
+                onTopUp={openTopUp}
+                onRequote={handleRequote}
                 onCancel={handleCancel}
                 onIdShare={requestIdShare}
                 onClose={handleClose}

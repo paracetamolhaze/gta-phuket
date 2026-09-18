@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
-import { query } from '../db/pool.js';
+import { query, withTransaction } from '../db/pool.js';
 import { logger } from '../logger.js';
 import { redis } from '../redis/client.js';
 import { K } from '../redis/keys.js';
-import { emitRealtime } from '../realtime/bus.js';
+import { emitRealtime, emitToViewer } from '../realtime/bus.js';
 import { getWalkingRoute } from '../maps/mapbox.js';
 import { sanitizeRouteGeometry } from './privacy.js';
 import { decodePolyline6, haversineMeters, remainingDistanceAlongPath } from './geo.js';
+import { refundWaypoint, type RefundOutcome } from './wallet.js';
 import type {
   ActiveWaypointView,
   ChannelSettings,
@@ -31,6 +32,7 @@ interface WaypointRow {
   duration_seconds: number;
   route_geometry: string;
   points_paid: number;
+  currency: string;
   status: string;
   cancel_reason: string | null;
   activated_at: Date;
@@ -52,6 +54,7 @@ function rowToWaypoint(row: WaypointRow): Waypoint {
     routeDurationSeconds: row.duration_seconds,
     routeGeometry: row.route_geometry,
     channelPointsPaid: row.points_paid,
+    currency: row.currency === 'GTA_DOLLAR' ? 'GTA_DOLLAR' : 'CHANNEL_POINTS',
     status: row.status as WaypointStatus,
     activatedAt: row.activated_at.getTime(),
     completedAt: row.completed_at?.getTime() ?? null,
@@ -117,8 +120,18 @@ export function toView(waypoint: Waypoint, nav: LiveNav | null): ActiveWaypointV
       nav?.remainingDurationSeconds ?? Math.round(waypoint.routeDurationSeconds),
     paidBy: waypoint.twitchUserName ?? waypoint.twitchUserId,
     channelPointsPaid: waypoint.channelPointsPaid,
+    currency: waypoint.currency,
     activatedAt: waypoint.activatedAt,
   };
+}
+
+/** The waypoint a quote paid for, if any. */
+export async function getWaypointByQuote(quoteId: string): Promise<Waypoint | null> {
+  const { rows } = await query<WaypointRow>('SELECT * FROM waypoints WHERE quote_id = $1', [
+    quoteId,
+  ]);
+  const row = rows[0];
+  return row ? rowToWaypoint(row) : null;
 }
 
 export async function getActiveWaypointView(
@@ -136,10 +149,12 @@ export async function getActiveWaypointView(
 /**
  * Insert the ACTIVE waypoint for a paid quote.
  *
- * Runs inside the caller's transaction, next to the redemption bookkeeping, so
- * "points taken" and "waypoint exists" commit together or not at all. The
- * partial unique index `waypoints_one_active_per_channel` is what actually
- * enforces one job at a time; a losing racer gets a 23505 here.
+ * Runs inside the caller's transaction, next to the payment bookkeeping (the
+ * redemption row, or the GTA$ debit), so "paid" and "waypoint exists" commit
+ * together or not at all. The partial unique index
+ * `waypoints_one_active_per_channel` is what actually enforces one job at a
+ * time; a losing racer gets a 23505 here. The waypoint inherits the quote's
+ * currency, and `points_paid` is the quote's frozen price in it.
  */
 export async function insertActiveWaypoint(
   client: PoolClient,
@@ -149,8 +164,9 @@ export async function insertActiveWaypoint(
     `INSERT INTO waypoints
        (id, channel_id, quote_id, twitch_user_id, twitch_user_name,
         dest_lat, dest_lng, dest_name, dest_category,
-        distance_meters, duration_seconds, route_geometry, points_paid, status, activated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ACTIVE', now())
+        distance_meters, duration_seconds, route_geometry, points_paid, status, activated_at,
+        currency)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ACTIVE', now(), $14)
      RETURNING *`,
     [
       randomUUID(),
@@ -166,6 +182,7 @@ export async function insertActiveWaypoint(
       quote.routeDurationSeconds,
       quote.routeGeometry,
       quote.channelPointsCost,
+      quote.currency,
     ],
   );
   const row = rows[0];
@@ -195,31 +212,73 @@ export async function completeWaypoint(channelId: string): Promise<Waypoint | nu
   const waypoint = rowToWaypoint(row);
   emitRealtime(channelId, 'waypoint:completed', {
     id: waypoint.id,
+    quoteId: waypoint.quoteId,
     destinationName: waypoint.destinationName,
   });
   return waypoint;
 }
 
+export interface CanceledWaypoint {
+  waypoint: Waypoint;
+  /** Null when no GTA$ refund was asked for or none applies (Channel Points). */
+  refund: RefundOutcome | null;
+}
+
+/**
+ * Stop the running job.
+ *
+ * With `refundGta`, a waypoint bought with GTA$ gets its price back in the
+ * same transaction that cancels it, so "canceled" and "refunded" cannot come
+ * apart. The refund's own unique index makes it once-only whatever calls
+ * this. Channel Points are never touched here: a GTA$ waypoint has no
+ * redemption behind it, and a legacy one is refunded (if at all) by the admin
+ * route against Twitch. Completion never refunds.
+ */
 export async function cancelWaypoint(
   channelId: string,
   reason: string,
-): Promise<Waypoint | null> {
-  const { rows } = await query<WaypointRow>(
-    `UPDATE waypoints SET status = 'CANCELED', canceled_at = now(), cancel_reason = $2
-      WHERE channel_id = $1 AND status = 'ACTIVE'
-      RETURNING *`,
-    [channelId, reason.slice(0, 200)],
-  );
-  const row = rows[0];
-  if (!row) return null;
+  opts: { refundGta?: boolean } = {},
+): Promise<CanceledWaypoint | null> {
+  const canceled = await withTransaction(async (client) => {
+    const { rows } = await client.query<WaypointRow>(
+      `UPDATE waypoints SET status = 'CANCELED', canceled_at = now(), cancel_reason = $2
+        WHERE channel_id = $1 AND status = 'ACTIVE'
+        RETURNING *`,
+      [channelId, reason.slice(0, 200)],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const waypoint = rowToWaypoint(row);
+    const refund =
+      opts.refundGta && waypoint.currency === 'GTA_DOLLAR'
+        ? await refundWaypoint(client, { channelId, waypointId: waypoint.id, reason })
+        : null;
+    return { waypoint, refund };
+  });
+  if (!canceled) return null;
+
+  // Side effects only after COMMIT: a rolled-back cancel must not have told
+  // anyone the job is gone, or the buyer that they were paid back.
   await redis.del(K.activeWaypoint(channelId));
-  const waypoint = rowToWaypoint(row);
+  const { waypoint, refund } = canceled;
   emitRealtime(channelId, 'waypoint:canceled', {
     id: waypoint.id,
     quoteId: waypoint.quoteId,
     reason,
   });
-  return waypoint;
+  if (refund?.refunded) {
+    emitToViewer(channelId, refund.twitchUserId, 'wallet:updated', {
+      type: 'MISSION_REFUND',
+      amount: refund.amount,
+      balance: refund.balance,
+      transactionId: refund.transactionId,
+    });
+    logger.info(
+      { waypointId: waypoint.id, user: refund.twitchUserId, amount: refund.amount },
+      'GTA$ refunded for a canceled waypoint',
+    );
+  }
+  return canceled;
 }
 
 export async function listRecentWaypoints(channelId: string, limit = 10): Promise<Waypoint[]> {

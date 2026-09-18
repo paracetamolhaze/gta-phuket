@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   JUNGCEYLON,
   PATONG,
@@ -8,6 +8,7 @@ import {
   seedRewardPool,
   servicesAvailable,
 } from './helpers/services.js';
+import { setPaymentModeOverride } from '../src/domain/paymentMode.js';
 import type { WalkingRoute } from '../src/domain/types.js';
 
 const ROUTE: WalkingRoute = {
@@ -25,6 +26,11 @@ vi.mock('../src/maps/mapbox.js', async (importOriginal) => {
 
 const online = await servicesAvailable();
 const d = online ? describe : describe.skip;
+
+// Reserving a slot is the legacy channel_points_reward flow; pinned so these
+// suites keep testing the pool whatever the default payment mode is.
+beforeAll(() => setPaymentModeOverride('channel_points_reward'));
+afterAll(() => setPaymentModeOverride(null));
 
 d('reward slot pool', () => {
   beforeEach(async () => {

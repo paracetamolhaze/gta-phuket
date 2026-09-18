@@ -29,6 +29,34 @@ export interface EventSubSubscription {
   created_at: string;
 }
 
+export type RedemptionStatus = 'UNFULFILLED' | 'FULFILLED' | 'CANCELED';
+
+export interface CustomRewardRedemption {
+  id: string;
+  status: RedemptionStatus;
+  reward: { id: string };
+}
+
+/**
+ * A non-2xx answer from Twitch. Keeps the HTTP status, because a few callers
+ * must tell "Twitch says no" (400/404: the thing is gone or already resolved)
+ * apart from "Twitch is unreachable" (worth retrying as is).
+ */
+export class TwitchApiError extends AppError {
+  constructor(
+    public readonly twitchStatus: number,
+    message: string,
+  ) {
+    super('provider_error', message, twitchStatus === 429 ? 429 : 502);
+  }
+}
+
+/** The Twitch HTTP status behind an error, or null when it never got an answer. */
+export function twitchStatusOf(err: unknown): number | null {
+  const status = (err as { twitchStatus?: unknown } | null)?.twitchStatus;
+  return typeof status === 'number' ? status : null;
+}
+
 type Auth = { kind: 'app' } | { kind: 'broadcaster'; channelId: string };
 
 interface RequestOptions {
@@ -56,7 +84,17 @@ async function helix<T>(path: string, opts: RequestOptions): Promise<T> {
       query: opts.query ?? {},
       body: opts.body,
     });
-    if (stub.handled) return stub.data as T;
+    if (stub.handled) {
+      // The stub refuses what Twitch refuses, in the same shape, so the error
+      // paths run offline too.
+      if (stub.status !== undefined && stub.status >= 400) {
+        throw new TwitchApiError(
+          stub.status,
+          `Twitch API ${stub.status} on ${opts.method ?? 'GET'} ${path}: ${JSON.stringify(stub.data ?? {})}`,
+        );
+      }
+      return stub.data as T;
+    }
   }
 
   if (!env.TWITCH_CLIENT_ID) {
@@ -90,10 +128,9 @@ async function helix<T>(path: string, opts: RequestOptions): Promise<T> {
   const text = await res.text();
   if (!res.ok) {
     logger.warn({ path, status: res.status, body: text.slice(0, 400) }, 'helix request failed');
-    throw new AppError(
-      'provider_error',
+    throw new TwitchApiError(
+      res.status,
       `Twitch API ${res.status} on ${opts.method ?? 'GET'} ${path}: ${text.slice(0, 300)}`,
-      res.status === 429 ? 429 : 502,
     );
   }
 
@@ -131,7 +168,8 @@ export interface CreateRewardInput {
   /**
    * Must stay false. A redemption that skips the request queue is FULFILLED on
    * arrival and can never be refunded, and refunding losers is the whole point
-   * of the slot pool.
+   * of the slot pool. The exchange reward relies on it too: its redemption is
+   * only marked FULFILLED once the GTA$ credit has committed.
    */
   shouldSkipRequestQueue?: false;
   isGlobalCooldownEnabled?: boolean;
@@ -204,6 +242,26 @@ export async function listManagedRewards(channelId: string): Promise<CustomRewar
   return data.data ?? [];
 }
 
+/**
+ * One reward of ours by id, or null when Twitch no longer has it (deleted in
+ * the dashboard). Any other failure throws: "could not ask" is not "gone".
+ */
+export async function getCustomReward(
+  channelId: string,
+  rewardId: string,
+): Promise<CustomReward | null> {
+  try {
+    const data = await helix<{ data: CustomReward[] }>('/channel_points/custom_rewards', {
+      auth: { kind: 'broadcaster', channelId },
+      query: { broadcaster_id: channelId, id: rewardId, only_manageable_rewards: true },
+    });
+    return data.data?.find((r) => r.id === rewardId) ?? null;
+  } catch (err) {
+    if (twitchStatusOf(err) === 404) return null;
+    throw err;
+  }
+}
+
 export async function deleteCustomReward(channelId: string, rewardId: string): Promise<void> {
   await helix<void>('/channel_points/custom_rewards', {
     method: 'DELETE',
@@ -229,6 +287,26 @@ export async function updateRedemptionStatus(
     query: { broadcaster_id: channelId, reward_id: rewardId, id: redemptionId },
     body: { status },
   });
+}
+
+/**
+ * Where Twitch thinks a redemption stands. Used to settle an ambiguous
+ * status update: a 400/404 on PATCH may mean "already fulfilled" or "a
+ * moderator cancelled it in the queue", and only a read tells which.
+ */
+export async function getRedemption(
+  channelId: string,
+  rewardId: string,
+  redemptionId: string,
+): Promise<CustomRewardRedemption | null> {
+  const data = await helix<{ data: CustomRewardRedemption[] }>(
+    '/channel_points/custom_rewards/redemptions',
+    {
+      auth: { kind: 'broadcaster', channelId },
+      query: { broadcaster_id: channelId, reward_id: rewardId, id: redemptionId },
+    },
+  );
+  return data.data?.find((r) => r.id === redemptionId) ?? null;
 }
 
 // ---------------------------------------------------------------------------
