@@ -43,6 +43,12 @@ export const K = {
   /** Pub/sub channel that fans realtime events between API instances. */
   realtimeChannel: 'gta:realtime',
 
+  /** GTA$ live acceptance monitor: ring of identity / wallet:updated notes. */
+  acceptanceLog: 'gta:acceptance:log',
+  /** One identity note per viewer and path per half minute. */
+  acceptanceSeen: (channelId: string, userId: string, via: string) =>
+    `gta:acceptance:seen:${channelId}:${userId}:${via}`,
+
   /** Live-route recompute throttle. */
   liveRouteThrottle: (channelId: string) => `gta:${channelId}:liveroute:throttle`,
 } as const;

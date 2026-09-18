@@ -22,6 +22,7 @@ import {
 import { buildWalletView } from '../../domain/wallet.js';
 import { AppError } from '../../domain/types.js';
 import { requireExtIdentity, requireLinkedViewer } from '../auth.js';
+import { noteAcceptance } from '../../diag/acceptance.js';
 import { enforceRateLimit } from '../rateLimit.js';
 
 const quoteBodySchema = z.object({
@@ -139,6 +140,7 @@ export async function registerExtRoutes(app: FastifyInstance): Promise<void> {
     const identity = requireExtIdentity(req);
     const userId = requireLinkedViewer(identity);
     await enforceRateLimit('wallet', `${identity.channelId}:${userId}`, 60);
+    noteAcceptance({ kind: 'identity_linked', channelId: identity.channelId, userId, via: 'wallet_read' });
     const economy = await getEconomyInfo(identity.channelId);
     return buildWalletView(identity.channelId, userId, economy);
   });

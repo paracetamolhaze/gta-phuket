@@ -16,6 +16,7 @@ import type {
   SlotStatus,
 } from '../shared/types';
 
+import { AcceptancePanel } from './AcceptancePanel';
 import { EconomyPanel } from './EconomyPanel';
 import { ExtDiagnosticsPanel } from './ExtDiagnosticsPanel';
 import { SettingsPanel } from './SettingsPanel';
@@ -785,6 +786,11 @@ export function App(): JSX.Element {
       </nav>
 
       {pollError ? <div className="ad-banner">Опрос состояния: {pollError}</div> : null}
+
+      {/* First on the page during a live test: the whole GTA$ flow, per viewer. */}
+      <div className="ad-wide">
+        <AcceptancePanel api={api} onAuthError={handleAuthError} />
+      </div>
 
       <main className="ad-main">
         <div className="ad-col">

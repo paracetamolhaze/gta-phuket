@@ -1020,3 +1020,54 @@ body.page-admin {
     transform: none;
   }
 }
+
+/* ---------------------------------------------------------------- GTA$ live acceptance */
+
+.ad-acc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.ad-acc-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-s);
+  background: var(--glass-soft);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ad-acc-chip b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ad-acc-chip.is-on {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.ad-acc-mark {
+  display: inline-block;
+  min-width: 1.4em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.ad-acc-mark.is-ok {
+  color: var(--ok);
+}
+
+.ad-acc-mark.is-wait {
+  color: var(--text-faint);
+}
+
+.ad-acc-table td {
+  vertical-align: top;
+}

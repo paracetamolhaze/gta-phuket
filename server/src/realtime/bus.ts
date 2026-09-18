@@ -1,4 +1,5 @@
 import type { RealtimeEventName, RealtimeEvents } from '../domain/types.js';
+import { noteAcceptance } from '../diag/acceptance.js';
 
 /**
  * Thin indirection so domain code can publish realtime events without
@@ -26,6 +27,8 @@ export interface RealtimeTransport {
     event: K,
     payload: RealtimeEvents[K],
   ): void;
+  /** How many sockets are in that viewer's wallet room right now (monitoring). */
+  countViewerSockets?(channelId: string, userId: string): number;
 }
 
 let transport: RealtimeTransport | null = null;
@@ -56,4 +59,20 @@ export function emitToViewer<K extends RealtimeEventName>(
   payload: RealtimeEvents[K],
 ): void {
   transport?.emitToViewer(channelId, userId, event, payload);
+
+  // Acceptance monitor only: record that the signal went out, and to how many
+  // of that viewer's sockets. Never affects delivery.
+  if (event === 'wallet:updated') {
+    const p = payload as Partial<RealtimeEvents['wallet:updated']>;
+    noteAcceptance({
+      kind: 'wallet_updated_emitted',
+      channelId,
+      userId,
+      type: typeof p.type === 'string' ? p.type : null,
+      amount: typeof p.amount === 'number' ? p.amount : null,
+      balance: typeof p.balance === 'number' ? p.balance : null,
+      transactionId: typeof p.transactionId === 'string' ? p.transactionId : null,
+      viewerSockets: transport?.countViewerSockets?.(channelId, userId) ?? null,
+    });
+  }
 }

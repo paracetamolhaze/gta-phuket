@@ -13,6 +13,7 @@ import { verifyExtensionJwt } from '../twitch/extJwt.js';
 import type { RealtimeEventName, RealtimeEvents, SnapshotPayload } from '../domain/types.js';
 import { setRealtimeTransport, type Audience } from './bus.js';
 import { broadcastGps } from './gpsBroadcast.js';
+import { noteAcceptance } from '../diag/acceptance.js';
 
 const VIEWERS = (channelId: string): string => `ch:${channelId}:viewers`;
 const TRUSTED = (channelId: string): string => `ch:${channelId}:trusted`;
@@ -112,7 +113,15 @@ export function createRealtimeServer(httpServer: HttpServer): Server {
     const data = socket.data as SocketData;
     const trusted = data.role !== 'viewer';
     socket.join(trusted ? TRUSTED(data.channelId) : VIEWERS(data.channelId));
-    if (!trusted && data.viewerUserId) socket.join(WALLET_ROOM(data.channelId, data.viewerUserId));
+    if (!trusted && data.viewerUserId) {
+      socket.join(WALLET_ROOM(data.channelId, data.viewerUserId));
+      noteAcceptance({
+        kind: 'identity_linked',
+        channelId: data.channelId,
+        userId: data.viewerUserId,
+        via: 'socket',
+      });
+    }
 
     void sendSnapshot(socket).catch((err) =>
       logger.warn({ err }, 'could not send realtime snapshot'),
@@ -173,6 +182,9 @@ export function createRealtimeServer(httpServer: HttpServer): Server {
     emitToViewer(channelId, userId, event, payload) {
       io.to(WALLET_ROOM(channelId, userId)).emit(event, payload);
       publish(channelId, event, payload, 'viewers', userId);
+    },
+    countViewerSockets(channelId, userId) {
+      return io.sockets.adapter.rooms.get(WALLET_ROOM(channelId, userId))?.size ?? 0;
     },
   });
 
