@@ -32,7 +32,7 @@ export const DIAG_EVENT_NAMES = [
 
 export type DiagEventName = (typeof DIAG_EVENT_NAMES)[number];
 
-export const DIAG_SURFACES = ['video_overlay', 'mobile', 'config', 'unknown'] as const;
+export const DIAG_SURFACES = ['video_overlay', 'mobile', 'config', 'panel', 'unknown'] as const;
 export type DiagSurface = (typeof DIAG_SURFACES)[number];
 
 export const VIEWER_KINDS = ['anonymous', 'logged_in', 'identified', 'unknown'] as const;

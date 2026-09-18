@@ -114,6 +114,7 @@ services:
       - ./web/video_overlay.html:/app/web/video_overlay.html:ro
       - ./web/mobile.html:/app/web/mobile.html:ro
       - ./web/config.html:/app/web/config.html:ro
+      - ./web/panel.html:/app/web/panel.html:ro
       - ./web/streamer.html:/app/web/streamer.html:ro
       - ./web/obs.html:/app/web/obs.html:ro
       - ./web/admin.html:/app/web/admin.html:ro
@@ -157,6 +158,7 @@ services:
       - ./web/video_overlay.html:/app/web/video_overlay.html:ro
       - ./web/mobile.html:/app/web/mobile.html:ro
       - ./web/config.html:/app/web/config.html:ro
+      - ./web/panel.html:/app/web/panel.html:ro
       - ./web/streamer.html:/app/web/streamer.html:ro
       - ./web/obs.html:/app/web/obs.html:ro
       - ./web/admin.html:/app/web/admin.html:ro

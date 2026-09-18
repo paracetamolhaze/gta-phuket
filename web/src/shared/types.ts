@@ -480,6 +480,16 @@ export type RealtimeEventName = keyof RealtimeEvents;
 // Viewer-facing API results
 // ---------------------------------------------------------------------------
 
+/** Newest waypoint of the channel (any status), without the buyer. Panel only. */
+export interface LastWaypointView {
+  destinationName: string;
+  destination: LatLng;
+  status: 'ACTIVE' | 'COMPLETED' | 'CANCELED';
+  distanceMeters: number;
+  activatedAt: number;
+  finishedAt: number | null;
+}
+
 export interface ViewerStatePayload {
   channelId: string;
   serverTime: number;
@@ -494,6 +504,8 @@ export interface ViewerStatePayload {
   slots: { free: number; total: number };
   paymentMode: PaymentMode;
   economy: EconomyInfo;
+  /** Absent from servers older than the Panel. */
+  lastWaypoint?: LastWaypointView | null;
 }
 
 export interface SearchResult {

@@ -29,6 +29,7 @@ import {
   hasActiveWaypoint,
   insertActiveWaypoint,
   primeLiveNav,
+  listRecentWaypoints,
   toView,
 } from './waypoints.js';
 import { sanitizeRouteGeometry } from './privacy.js';
@@ -43,6 +44,7 @@ import {
   type Quote,
   type QuoteView,
   type ViewerStatePayload,
+  type LastWaypointView,
   type Waypoint,
 } from './types.js';
 
@@ -551,11 +553,12 @@ export async function buildViewerState(
   identityLinked: boolean,
 ): Promise<ViewerStatePayload> {
   const settings = await getSettings(channelId);
-  const [gps, waypoint, slots, economy] = await Promise.all([
+  const [gps, waypoint, slots, economy, recent] = await Promise.all([
     getPublicGps(channelId, settings),
     getActiveWaypoint(channelId),
     countFreeSlots(channelId, settings.rewardSlotPoolSize),
     getEconomyInfo(channelId, settings),
+    listRecentWaypoints(channelId, 1),
   ]);
 
   const activeWaypoint = waypoint ? await getActiveWaypointView(channelId) : null;
@@ -582,5 +585,20 @@ export async function buildViewerState(
     slots,
     paymentMode: paymentMode(),
     economy,
+    lastWaypoint: toLastWaypointView(recent[0] ?? null),
+  };
+}
+
+/** Rounded like the rest of the viewer-facing coordinates; no buyer fields. */
+function toLastWaypointView(w: Waypoint | null): LastWaypointView | null {
+  if (!w) return null;
+  const round = (n: number): number => Math.round(n * 1e4) / 1e4;
+  return {
+    destinationName: w.destinationName,
+    destination: { lat: round(w.destination.lat), lng: round(w.destination.lng) },
+    status: w.status,
+    distanceMeters: Math.round(w.routeDistanceMeters),
+    activatedAt: w.activatedAt,
+    finishedAt: w.completedAt ?? w.canceledAt ?? null,
   };
 }

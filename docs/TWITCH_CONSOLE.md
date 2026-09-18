@@ -71,9 +71,11 @@ The interface is in Russian. Sharing your Twitch identity is needed only for the
 | Field | Value |
 | --- | --- |
 | Testing Base URI | `https://gudinigta6.duckdns.org/` (must end with `/`; used by Local Test only — Hosted Test and review serve the uploaded zip) |
-| Type of Extension | **Video - Fullscreen** and **Mobile** (not Panel, not Video - Component) |
+| Type of Extension | **Video - Fullscreen**, **Panel** and **Mobile** (not Video - Component) |
 | Video - Fullscreen View Path | `video_overlay.html` |
 | Mobile View Path | `mobile.html` |
+| Panel Viewer Path | `panel.html` |
+| Panel Height | `500` (px, Twitch's maximum; the panel is 318 px wide) |
 | Config Path | `config.html` |
 | Live Config Path | *(empty)* |
 
@@ -98,7 +100,7 @@ The paths are relative to the zip root: `web/scripts/check-extension-csp.mjs
 | Allowlist for Image Domains | *(empty)* | Mapbox images arrive through `fetch`, never `<img>`. |
 | Allowlist for Media Domains | *(empty)* | No audio or video. |
 | Allowlisted Config URLs | `https://gudinigta6.duckdns.org/admin`<br>`https://gudinigta6.duckdns.org/privacy`<br>`https://gudinigta6.duckdns.org/terms` | `config.html` links to the owner's admin panel and to the two legal pages (new tab). |
-| Allowlisted Panel URLs | *(empty)* | No panel. |
+| Allowlisted Panel URLs | *(empty)* | The panel opens no external links. |
 
 **Allowlist for URL Fetching Domains**, one per line:
 

@@ -75,6 +75,7 @@ function entryPoints(): Record<string, string> {
     video_overlay: resolve(__dirname, 'video_overlay.html'),
     mobile: resolve(__dirname, 'mobile.html'),
     config: resolve(__dirname, 'config.html'),
+    panel: resolve(__dirname, 'panel.html'),
     streamer: resolve(__dirname, 'streamer.html'),
     obs: resolve(__dirname, 'obs.html'),
     admin: resolve(__dirname, 'admin.html'),
@@ -91,6 +92,7 @@ const TWITCH_ENTRIES = new Map([
   ['video_overlay.html', 'video_overlay'],
   ['mobile.html', 'mobile'],
   ['config.html', 'config'],
+  ['panel.html', 'panel'],
 ]);
 
 /**

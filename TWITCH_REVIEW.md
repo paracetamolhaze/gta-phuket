@@ -116,6 +116,18 @@ and the viewer gets all the GTA$ back automatically.
    One waypoint runs at a time. While one is active, others see
    «Сейчас выполняется задание.» ("A task is in progress.").
 
+**Panel** (`panel.html`, on the channel page under the video — also when the
+channel is **offline**): the same GTA$ wallet and Twitch identity. It shows the
+balance with **+ ПОПОЛНИТЬ** (the same top-up instructions), **ПОДКЛЮЧИТЬ** to
+share identity, the map of Phuket with search, a price for a picked place, the
+last waypoint («Последняя точка»), and the stream status: **СТРИМЕР ОФЛАЙН**
+("STREAMER OFFLINE") or **В ЭФИРЕ** ("LIVE"), read from Twitch's Get Streams
+with the extension's helixToken. The Panel never sells: while offline its main
+button is disabled, **СТРИМЕР СЕЙЧАС ОФЛАЙН** ("STREAMER IS OFFLINE NOW"), and
+nothing is charged; while live it reads **ОТКРЫТЬ КАРТУ НА СТРИМЕ** ("OPEN THE
+MAP ON THE STREAM") and points to the video overlay, where waypoints are bought.
+So the main interface can be reviewed even when the channel is offline.
+
 **Config page** (`config.html`, broadcaster only): a read-only status page —
 backend, Twitch connection, EventSub, GPS, exchange reward, exchange rate,
 payment mode, and a link to the owner's admin panel. Viewers never see it.

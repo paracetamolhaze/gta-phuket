@@ -123,7 +123,7 @@
 	#
 	# Matched on both spellings because `header` runs before `rewrite`, so it
 	# sees the path the browser asked for.
-	@twitchSurface path /video_overlay.html /video_overlay /mobile.html /mobile /config.html /config
+	@twitchSurface path /video_overlay.html /video_overlay /mobile.html /mobile /config.html /config /panel.html /panel
 	header @twitchSurface {
 		Content-Security-Policy "frame-ancestors https://supervisor.ext-twitch.tv https://extension-files.twitch.tv https://*.twitch.tv https://*.twitch.tech https://localhost.twitch.tv:* https://localhost.twitch.tech:* http://localhost.rig.twitch.tv:* https://m-localhost.twitch.tech:* https://www-localhost.twitch.tech:* https://*.twitch.local capacitor://*.twitch.tv"
 		# X-Frame-Options has no allowlist form: any value would lock Twitch

@@ -33,7 +33,7 @@ const stage = join(webRoot, 'extension-build');
 const zipPath = join(webRoot, 'twitch-extension.zip');
 
 /** The pages Twitch is configured to serve. Keep in sync with the console. */
-const ENTRIES = ['video_overlay.html', 'mobile.html', 'config.html'];
+const ENTRIES = ['video_overlay.html', 'mobile.html', 'config.html', 'panel.html'];
 
 async function exists(p) {
   try {
@@ -203,6 +203,7 @@ async function main() {
   console.log('  Video - Fullscreen Path : video_overlay.html');
   console.log('  Mobile Path             : mobile.html');
   console.log('  Config Path             : config.html');
+  console.log('  Panel Viewer Path       : panel.html');
 
   // The API base is compiled into the bundle, so the bundle is what to ask —
   // not this script's own environment, which is usually a different process.

@@ -1,0 +1,192 @@
+/* Twitch Panel: 318 px wide, up to 500 px tall, on the channel page.
+   viewer.css is imported for the wallet chip and top-up dialog; its
+   click-through rules are meant for the video overlay and are undone here. */
+
+html,
+body.page-panel,
+body.page-panel #root {
+  pointer-events: auto;
+  overflow: hidden;
+  height: 100%;
+  margin: 0;
+}
+
+body.page-panel {
+  background: #0e1116;
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.pn {
+  position: relative;
+  box-sizing: border-box;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.pnHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pnBrand {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  font-size: 13px;
+}
+
+.pnLive {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--hairline-strong);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.pnLive.is-live {
+  color: #0b0f15;
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.pnLive.is-offline {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* The chip is right-aligned in the overlay; here it spans the panel. */
+.pnWallet.walletSlot {
+  justify-content: stretch;
+}
+
+.pnWallet .walletChip {
+  flex: 1 1 auto;
+}
+
+.pnWallet .topUp {
+  width: auto;
+  left: 0;
+  right: 0;
+  max-width: none;
+  max-height: 360px;
+}
+
+.pnSearch {
+  position: relative;
+  z-index: 5;
+}
+
+.pnMap {
+  position: relative;
+  flex: 0 0 200px;
+  min-height: 200px;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+}
+
+.pnMap > * {
+  position: absolute;
+  inset: 0;
+}
+
+.pnCard {
+  min-height: 44px;
+}
+
+.pnHintText {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.pnError {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.pnError p {
+  margin: 0;
+}
+
+.pnQuote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--radius-m);
+  background: var(--glass-soft);
+  border: 1px solid var(--hairline);
+}
+
+.pnQuoteName {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.pnQuoteMeta,
+.pnQuoteBalance {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.pnQuotePrice {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.pnCta {
+  margin-top: 6px;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.pnCta:disabled {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+.pnCta:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pnLast {
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
+  font-size: 12px;
+}
+
+.pnLastTitle {
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  margin-bottom: 2px;
+}
+
+.pnLastWhen {
+  color: var(--text-dim);
+}

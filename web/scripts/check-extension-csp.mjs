@@ -42,7 +42,7 @@ const manifestPath = join(webRoot, 'dist', '.vite', 'manifest.json');
 const FINAL = process.argv.slice(2).includes('--final');
 
 /** The pages Twitch is configured to serve. Keep in sync with build-extension.mjs. */
-const ENTRIES = ['video_overlay.html', 'mobile.html', 'config.html'];
+const ENTRIES = ['video_overlay.html', 'mobile.html', 'config.html', 'panel.html'];
 
 /**
  * Hosts Twitch allows without an allowlist entry. Everything else found in a

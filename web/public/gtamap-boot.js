@@ -66,7 +66,7 @@
   // session budget: after this many identical reports the rest are dropped.
   const MAX_REPEATS = 3;
 
-  const SURFACES = ['video_overlay', 'mobile', 'config'];
+  const SURFACES = ['video_overlay', 'mobile', 'config', 'panel'];
   const PARAM_KEYS = ['anchor', 'platform', 'mode', 'state', 'language', 'locale', 'popout'];
   const CONTEXT_KEYS = [
     'mode', 'isFullScreen', 'isPaused', 'isTheatreMode', 'playbackMode',
